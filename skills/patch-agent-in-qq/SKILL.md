@@ -1,5 +1,5 @@
 ---
-name: patch-cc-in-qq
+name: patch-agent-in-qq
 description: Use when asked to change the agent-in-qq bridge — its slash commands, QQ transport, streamed output, or session lifecycle — and whenever an edit to it has to take effect on the process that is already running.
 ---
 
