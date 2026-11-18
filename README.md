@@ -1,29 +1,21 @@
-# Claude in QQ
+# Agent in QQ
 
-把 QQ 私聊变成 Claude Code 的遥控器。手机上发一句话，本机的 Claude Code 就开始干活——用你真实的
-CLAUDE.md、skills、MCP，跑在真实的文件系统上。需要审批的工具调用变成 QQ 里的按钮，点一下放行。
+用 QQ 官方 bot 遥控本机的 Claude Code 或 Codex。手机上发一条私聊，或者在群里叫 bot，选定的 agent 就在本机工作目录中运行。回复发回 QQ，需要审批时可以在 QQ 点按钮。
 
-基于 QQ 官方 bot 平台。
-
-**100% 纯血的 Claude Code。** 不是聊天机器人，不是套壳，也不是借 CC 订阅跑别的 agent——就是官方
-harness 本身：同一套工具、同样的 skills 和 hooks、一样的权限模型。你在终端里怎么用，在 QQ 里就怎么用。
-
-**轻松的入口，严肃的执行。** QQ 私聊没有任何仪式感——你已经在里面了，发消息就是发消息。但接住这句
-话的，是一个能翻遍整个仓库、跑命令验证假设、配好服务再把结论发回你手机的完整 agent。像个顶级秘书：
-你随口一个念头，它当正经活儿办完。
-
-**用你的 Claude 订阅额度。** 走官方 Agent SDK，吃的是订阅，不是 API 按量计费。挂着不心疼。
+每个 bot 运行一个独立服务，启动时选择后端。现有 Claude Code bot 可以与第二个 Codex bot 同时运行，各自的会话、群聊历史、状态目录和日志独立保存。
 
 ## 安装
 
 直接把这句话扔给你的 Claude Code：
 
 ```
-请阅读并帮我安装这个：https://github.com/dragon-fish/claude-in-qq
+请阅读并帮我安装这个：https://github.com/dragon-fish/agent-in-qq
 ```
 
 它会照着[下面的步骤](#上手)自己装完。你本人只需要做两件事：在手机 QQ 里点开一个链接完成授权，
 以及——如果你打算让别人也能用——决定放行谁。
+
+Codex 的凭据和启动方式见[配置第二个 Codex bot](#配置第二个-codex-bot)。
 
 ## 能做什么
 
@@ -31,8 +23,8 @@ harness 本身：同一套工具、同样的 skills 和 hooks、一样的权限�
   markdown 正常渲染，QQ 支持加粗、行内代码、列表、围栏代码块、链接、表格
 - **看得见过程**：思考摘要和工具调用写进同一条流里的代码块，长了 QQ 会自己折叠（约 15 行），
   所以长任务不会把答案埋掉，也不额外花消息条数。`/verbose` 可切三档：完整过程 / 只报进度 / 只要答案
-- **审批**：工具调用弹按钮，点「允许」或「拒绝」。默认 `auto` 模式，只有模型判定有风险的操作才问
-- **提问**：Claude 需要你拿主意时会推一组按钮出来，等同于 TUI 里的 AskUserQuestion
+- **审批**：后端需要审批时弹按钮，点「允许」或「拒绝」。Claude 默认 `auto`，Codex 默认工作区可写、按需审批。
+- **提问**：agent 需要你拿主意时，可以通过 `qq_ask` 推一组按钮。
 - **斜杠指令**：`/help` `/stop` `/clear` `/compact` `/context` `/usage` `/model` `/mode` `/verbose` `/resume` `/cwd` `/status` `/version` `/op` `/nick` `/group` `/restart`。
   `/restart`（别名 `/reload`）立即重启进程、加载新代码，只在以服务方式运行时可用（launchd 或 Windows 计划任务）。
   `/restart 附言` 会把附言写进唤醒便条 `wake.md`：新进程起来后若该文件非空，就把内容交给私聊里的 agent 自动接续并
@@ -45,7 +37,7 @@ harness 本身：同一套工具、同样的 skills 和 hooks、一样的权限�
   对应的位置而不是堆在末尾。10MB 以内的 png/jpeg/gif/webp 直接嵌在消息正文里，几张都行；其他文件
   作为附件发送，一条消息只能带一个附件，所以多个文件它会打包成 zip——手机 QQ 能直接预览 zip 里的
   内容，不用解压
-- **用你的浏览器**：会话总是带 `--chrome` 启动，装了 [Claude in Chrome](https://chromewebstore.google.com/detail/claude/fcoeoabgfenejglbffodgkkbkcdhcgfn)
+- **Claude 的浏览器集成**：会话总是带 `--chrome` 启动，装了 [Claude in Chrome](https://chromewebstore.google.com/detail/claude/fcoeoabgfenejglbffodgkkbkcdhcgfn)
   扩展的话，它能直接操作你本机的 Chrome，沿用里面的登录状态。要求 CC 用 `/login` 登录（API Key 和
   `setup-token` 的长期 token 不行）；没装扩展或 Chrome 没开时，浏览器工具只会报未连接，其余照常
 - **不掉线**：会话 ID 落盘，重启机器后接着上次的上下文聊
@@ -77,20 +69,18 @@ QQ 手机客户端
 腾讯开放平台 WebSocket 网关
    │
    ▼
-src/index.ts ──── Claude Agent SDK ──── Claude Code（订阅额度，非 API 计费）
-   │                    │
-   │                    └─ canUseTool → 审批按钮推回 QQ
-   └─ src/qq.ts：凭据、白名单、配额、网关、键盘、媒体
+src/index.ts ──┬── Claude Agent SDK → Claude Code
+               └── Codex App Server → Codex
 ```
 
-关键在于 SDK **拥有**这个会话，而不是往别人的会话里推消息。所以常驻、审批中继、斜杠指令都只是普通
-函数调用，不需要一个开着的终端。
+QQ 网关、消息路由、会话队列、卡片和回复共用。每个进程按配置启动自己的后端。
 
 
 | 文件              | 职责                                            |
 | ------------------- | ------------------------------------------------- |
 | `src/index.ts`    | 主循环：消息进 SDK、事件出 QQ、审批与提问的中继 |
-| `src/qq.ts`       | 协议层，只认 QQ 不认 Claude                     |
+| `src/qq.ts`       | QQ 凭据、白名单、网关、键盘、媒体                |
+| `src/codex.ts`    | Codex App Server 的会话、事件、工具和审批        |
 | `src/commands.ts` | 斜杠指令注册表                                  |
 | `src/turn.ts`     | 哪些群消息触发一轮、何时停止回应 bot、消息和会话留言怎么包装给 agent |
 | `src/history.ts`  | 群消息历史（`node:sqlite`）                     |
@@ -101,6 +91,8 @@ src/index.ts ──── Claude Agent SDK ──── Claude Code（订阅额�
 | `service/`        | 常驻服务（macOS launchd / Windows 计划任务）    |
 
 ## 上手
+
+以下是现有 Claude Code bot 的配置步骤。
 
 > 这一节写给可能替人安装的 agent。装它是一串确定的命令，但**其中两步只能由人完成**——扫码要拿手机，
 > 授权要有人在键盘前——遇到时请停下来交给用户，不要试图绕过。
@@ -238,6 +230,25 @@ Get-Content -Wait ~/.claude/channels/qq/bridge.log    # 日志
 让用户在 QQ 私聊里给 bot 发一句话，看是否有回复。日志里出现 `gateway connected` 和 `ready` 才算通。
 
 如果 QQ 显示 bot 离线：在线状态就是本进程的网关连接，进程没起来它就是离线。先看日志。
+
+## 配置第二个 Codex bot
+
+在第二份部署 checkout 中装好依赖。Codex CLI 需要在服务的 PATH 上并已登录，可用 `codex login status` 检查。本文以 Codex CLI 0.169.0 为验证版本。
+
+用 QQ 开放平台创建第二个 bot，把它的 `QQ_APP_ID` 和 `QQ_CLIENT_SECRET` 分别写入 Codex 状态目录里的 `.env`。如果该 bot 使用 QQ 沙箱，再加入 `QQ_SANDBOX=1`。macOS 示例：
+
+```sh
+export QQ_AGENT_BACKEND=codex
+export QQ_STATE_DIR="$HOME/.codex/channels/qq"
+mkdir -p -m 700 "$QQ_STATE_DIR"
+touch "$QQ_STATE_DIR/.env"
+chmod 600 "$QQ_STATE_DIR/.env"
+service/install.sh
+```
+
+也可以向该目录使用 `bun run onboard` 扫码写入凭据。Windows 用 `pwsh service/install.ps1 -Backend codex -StateDir <绝对路径>` 安装 `codex-in-qq` 计划任务。两个有自动回滚的服务使用不同 checkout。macOS 下通过 `launchctl kickstart -k gui/$UID/local.codex-in-qq` 重启 Codex bot，或在它的 QQ 私聊输入 `/restart`。
+
+第一次私聊 Codex bot 时，用同一个 `QQ_STATE_DIR` 执行本机 `bun run pair <配对码>`。Codex 默认用 `workspace-write` 沙箱，审批通过 QQ 按钮。用 `/mode` 选择 Codex 的沙箱模式，用 `/cwd` 选择工作目录。
 
 ## 捎话（附带功能，可装可不装）
 

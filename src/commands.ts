@@ -10,7 +10,7 @@
  * the session lifecycle.
  */
 
-import { listSessions } from '@anthropic-ai/claude-agent-sdk'
+import { codexModes } from './codex.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -19,6 +19,13 @@ import { nativePath } from './paths.js'
 
 /** How much meaning the buttons carry on their own; see buildAskKeyboard. */
 export type AskMode = 'text' | 'truncated' | 'letters'
+
+type SessionInfo = {
+  sessionId: string
+  lastModified: number
+  customTitle?: string | null
+  summary?: string | null
+}
 
 export type CommandDeps = {
   /** Send a message to the operator. */
@@ -33,6 +40,8 @@ export type CommandDeps = {
   askChoice(options: string[], renderBody: (mode: AskMode) => string): Promise<number>
   /** The live query, or null before the first message starts a session. */
   query(): any | null
+  backend: 'claude' | 'codex'
+  listSessions(dir: string): Promise<SessionInfo[]>
   workdir(): string
   setWorkdir(path: string): void
   /** Tear the session down; the main loop rebuilds it. */
@@ -316,7 +325,7 @@ register(
         const alt = c.aliases?.length ? ` (${c.aliases.map(a => `\`/${a}\``).join(', ')})` : ''
         lines.push(`- \`${c.usage}\`${alt} — ${c.summary}`)
       }
-      lines.push('', '其余消息都直接发给 Claude。')
+      lines.push('', `其余消息都直接发给 ${deps.backend === 'codex' ? 'Codex' : 'Claude'}。`)
       await deps.reply(lines.join('\n'))
     },
   },
@@ -489,7 +498,7 @@ register(
       const q = await requireQuery(deps)
       if (!q) return
 
-      const modes = [
+      const modes = deps.backend === 'codex' ? codexModes(deps.where() === 'private') : [
         { value: 'auto', label: 'auto 智能判断', desc: '分类器放行常规操作，只对有风险的问你' },
         { value: 'default', label: 'default 每步都问', desc: '任何写入和命令都要批准' },
         { value: 'acceptEdits', label: 'acceptEdits 改文件免批', desc: '文件编辑自动通过，命令仍要批' },
@@ -498,7 +507,7 @@ register(
       // Private chat only, never a group: there non-owner ops start turns, and
       // in this mode their requests would run with no approval card to stop
       // them. Group sessions refuse the switch anyway (no allowDangerouslySkipPermissions).
-      if (deps.where() === 'private') {
+      if (deps.backend === 'claude' && deps.where() === 'private') {
         modes.push({ value: 'bypassPermissions', label: 'bypass 危险全开', desc: '所有工具调用不经审批直接执行' })
       }
 
@@ -604,7 +613,7 @@ register(
       // The SDK spells this one with a warning in the name. Honour it: call it
       // through an optional chain and catch, so the day it is renamed this
       // command degrades to a sentence instead of taking the turn down.
-      const read = q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET
+      const read = deps.backend === 'codex' ? q.usage : q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET
       if (typeof read !== 'function') {
         await deps.reply('这个 SDK 版本没有暴露用量接口。')
         return
@@ -625,11 +634,11 @@ register(
     summary: '从历史会话里挑一个恢复',
     async run(_arg, deps) {
       const dir = deps.workdir()
-      let sessions: any[]
+      let sessions: SessionInfo[]
       try {
         // Sessions are per project directory, so this lists what exists under
         // the current workdir rather than everything on the machine.
-        sessions = await listSessions({ dir, limit: 6 })
+        sessions = await deps.listSessions(dir)
       } catch (err) {
         await deps.reply(`读取历史会话失败：${err}`)
         return
@@ -639,14 +648,14 @@ register(
         return
       }
 
-      const when = (s: any) =>
+      const when = (s: SessionInfo) =>
         new Date(s.lastModified).toLocaleString('zh-CN', {
           month: 'numeric',
           day: 'numeric',
           hour: '2-digit',
           minute: '2-digit',
         })
-      const title = (s: any) => cell(s.customTitle ?? s.summary ?? '(无标题)')
+      const title = (s: SessionInfo) => cell(s.customTitle ?? s.summary ?? '(无标题)')
       const labels = sessions.map(s => `${when(s)} ${title(s)}`.slice(0, 60))
 
       const idx = await deps.askChoice(labels, mode => {
@@ -910,7 +919,8 @@ register(
       } else {
         lines.push('拿不到 git 信息：不在仓库里，或者 git 不可用。')
       }
-      if (SDK_VERSION) lines.push(`Agent SDK：\`${SDK_VERSION}\``)
+      if (deps.backend === 'codex') lines.push('后端：Codex App Server')
+      else if (SDK_VERSION) lines.push(`Agent SDK：\`${SDK_VERSION}\``)
       lines.push(`已运行：${uptimeWords()}`)
       await deps.reply(lines.join('\n'))
     },

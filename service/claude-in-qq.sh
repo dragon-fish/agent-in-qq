@@ -13,8 +13,8 @@
 
 set -eu
 
-ROOT=$(cd "$(dirname "$0")/.." && pwd)
-STATE_DIR=${QQ_STATE_DIR:-$HOME/.claude/channels/qq}
+ROOT=$(cd "$(dirname "$0")/.." && pwd -P)
+. "$ROOT/service/instance.sh"
 MAX_BYTES=5242880 # 5 MiB, one generation kept
 
 # launchd runs this on a timer, so most invocations find a healthy bridge and
@@ -23,7 +23,7 @@ MAX_BYTES=5242880 # 5 MiB, one generation kept
 # The executable is read from `args` rather than `comm`, which macOS truncates —
 # a bun under a long home path shows up as "/Users/name" and never matches. This
 # script cannot match itself: its own argv[0] is /bin/sh.
-if ps -axo pid=,args= | awk '$2 ~ /bun$/ && index($0, "src/index.ts")' | grep -q .; then
+if [ -n "$(bridge_processes)" ]; then
   exit 0
 fi
 
@@ -115,4 +115,5 @@ echo $((count + 1)) > "$CRASH_FILE"
 cd "$ROOT"
 # Tells /restart that exiting is safe: launchd's KeepAlive starts the next one.
 export CLAUDE_IN_QQ_SUPERVISOR=launchd
-exec "$HOME/.bun/bin/bun" run src/index.ts
+export QQ_AGENT_BACKEND="$BACKEND" QQ_STATE_DIR="$STATE_DIR"
+exec "$HOME/.bun/bin/bun" run src/index.ts "--qq-agent-backend=$BACKEND"

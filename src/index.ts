@@ -10,7 +10,8 @@
  * report on it.
  */
 
-import { createSdkMcpServer, query, tool } from '@anthropic-ai/claude-agent-sdk'
+import { createSdkMcpServer, listSessions, query, tool, type SDKUserMessage as ClaudeUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import { checkCodex, CODEX_DEFAULT_MODE, CodexSession, codexModes, listCodexSessions } from './codex.js'
 import { z } from 'zod'
 import { buildHead, dispatch, panelEntries, type CommandDeps } from './commands.js'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
@@ -40,6 +41,7 @@ import {
 import {
   addNickname,
   addOp,
+  BACKEND,
   type Attachment,
   buildApprovalKeyboard,
   buildAskKeyboard,
@@ -120,7 +122,10 @@ const QUESTION_TIMEOUT_MS = 15 * 60 * 1000
  */
 const CONTEXT_FILE = fileURLToPath(new URL('./operator-context.md', import.meta.url))
 
-const readOperatorContext = () => readFileSync(CONTEXT_FILE, 'utf8').trim()
+const readOperatorContext = () => {
+  const instructions = readFileSync(CONTEXT_FILE, 'utf8').trim()
+  return BACKEND === 'codex' ? instructions.replaceAll('mcp__qq__', '') : instructions
+}
 const contextMtime = () => statSync(CONTEXT_FILE).mtimeMs
 
 const OPERATOR_CONTEXT = readOperatorContext()
@@ -620,7 +625,7 @@ class Conversation {
    * This conversation's own instance of the bridge's tools, so a question the
    * agent asks is recorded against the conversation that asked it.
    */
-  readonly tools: ReturnType<typeof createSdkMcpServer>
+  readonly tools: ReturnType<typeof qqToolsFor>
 
   constructor(key: string, chat: Chat) {
     this.key = key
@@ -629,12 +634,15 @@ class Conversation {
     const group = key.startsWith(GROUP_PREFIX) ? key.slice(GROUP_PREFIX.length) : null
     this.workdir = saved.workdir ?? (group ? groupWorkdir(group) : (process.env.QQ_BRIDGE_CWD ?? homedir()))
     if (group && !saved.workdir) mkdirSync(this.workdir, { recursive: true })
-    const mode = saved.permission_mode ?? process.env.QQ_PERMISSION_MODE ?? 'auto'
+    const defaultMode = BACKEND === 'codex' ? CODEX_DEFAULT_MODE : 'auto'
+    const mode = saved.permission_mode ?? process.env.QQ_PERMISSION_MODE ?? defaultMode
     // bypassPermissions is the owner's, in private chat: in a group non-owner
     // ops start turns. allowDangerouslySkipPermissions only stops switching
     // into it mid-session — a session launched in it runs in it — so a group
     // must never be launched with it, whatever its state or the env says.
-    this.permissionMode = group && mode === 'bypassPermissions' ? 'auto' : mode
+    this.permissionMode = BACKEND === 'codex'
+      ? (codexModes(!group).some(option => option.value === mode) ? mode : defaultMode)
+      : group && mode === 'bypassPermissions' ? 'auto' : mode
     this.traceLevel = saved.trace_level ?? (group ? 'off' : 'full')
     this.name = saved.name ?? null
     this.qqName = saved.qq_name ?? null
@@ -1080,7 +1088,7 @@ async function askApproval(
   // shows, its braces and asterisks would otherwise read as formatting and
   // could disguise what is actually being approved.
   const body = [
-    `**🔐 Claude 要用 ${sanitize(toolLabel(toolName), 40)}**`,
+    `**🔐 ${BACKEND === 'codex' ? 'Codex' : 'Claude'} 要用 ${sanitize(toolLabel(toolName), 40)}**`,
     ...[originNote(conv)].filter(x => x !== null),
     '',
     '```',
@@ -1090,9 +1098,7 @@ async function askApproval(
     answerHint(conv, '点按钮，或回复 y / n'),
   ].join('\n')
 
-  await sendToQQ(user, body, lastInboundMsgId.get(user), buildApprovalKeyboard(id))
-
-  return new Promise<boolean>(resolve => {
+  const answer = new Promise<boolean>(resolve => {
     const timer = setTimeout(() => {
       pendingApprovals.delete(id)
       log(`approval ${id} timed out, denying`)
@@ -1100,6 +1106,13 @@ async function askApproval(
     }, APPROVAL_TIMEOUT_MS)
     pendingApprovals.set(id, { resolve, timer, conversation: conv.key })
   })
+  try {
+    await sendToQQ(user, body, lastInboundMsgId.get(user), buildApprovalKeyboard(id))
+  } catch (err) {
+    settleApproval(id, false)
+    throw err
+  }
+  return answer
 }
 
 /** Heads every history listing: what members wrote is material, not direction. */
@@ -1109,7 +1122,7 @@ const HISTORY_CAVEAT =
 // ---------------------------------------------------------------- qq_ask tool
 
 function qqToolsFor(conv: Conversation) {
-  return createSdkMcpServer({
+  return {
     name: 'qq',
     version: '0.1.0',
     tools: [
@@ -1175,11 +1188,7 @@ function qqToolsFor(conv: Conversation) {
             return lines.join('\n')
           }
 
-          log(`question ${id} posting: ${question.slice(0, 60)}`)
-          await postQuestion(group, id, options, render)
-          log(`question ${id} posted`)
-
-          const answer = await new Promise<QuestionAnswer>(resolve => {
+          const pendingAnswer = new Promise<QuestionAnswer>(resolve => {
             const timer = setTimeout(() => {
               pendingQuestions.delete(id)
               resolve({
@@ -1189,6 +1198,15 @@ function qqToolsFor(conv: Conversation) {
             }, QUESTION_TIMEOUT_MS)
             pendingQuestions.set(id, { resolve, timer, options, render, conversation: conv.key, group, answerers })
           })
+          log(`question ${id} posting: ${question.slice(0, 60)}`)
+          try {
+            await postQuestion(group, id, options, render)
+          } catch (err) {
+            settleQuestion(id, '')
+            throw err
+          }
+          log(`question ${id} posted`)
+          const answer = await pendingAnswer
 
           return {
             content: [
@@ -1359,7 +1377,7 @@ function qqToolsFor(conv: Conversation) {
         },
       ),
     ],
-  })
+  }
 }
 
 // ------------------------------------------------------ inter-conversation mail
@@ -1991,6 +2009,8 @@ function commandDeps(conv: Conversation, origin: CommandOrigin): CommandDeps {
     reply: text => conv.chat.send(text),
     askChoice: (options, render) => askChoice(conv, options, render, true),
     query: () => conv.query,
+    backend: BACKEND,
+    listSessions: dir => BACKEND === 'codex' ? listCodexSessions(dir) : listSessions({ dir, limit: 6 }),
     workdir: () => conv.workdir,
     setWorkdir: path => conv.setWorkdir(path),
     // With no live session — not started yet, waiting for a slot, or parked —
@@ -2758,27 +2778,9 @@ function stampedUuids(m: any): string[] {
   return typeof m.user_message_uuid === 'string' ? [m.user_message_uuid] : []
 }
 
-/**
- * Run one agent session for `conv` until it ends. Returns when the query
- * closes.
- */
-async function runSession(conv: Conversation): Promise<void> {
-  // The previous session's iterator may still be parked on this queue.
-  conv.queue.detachWaiters()
-
-  const resume = conv.sessionId()
-  log(`[${conv.key}] ${resume ? `resuming session ${resume}` : 'starting a new session'}`)
-
-  // Whatever the last session took and never answered went with it; only what
-  // is still queued is owed an answer by this one. Settled before query()
-  // exists: the queue may be read from the moment it does.
-  conv.inTurn = false
-  conv.turn = { human: false, agent: false }
-  const queued = conv.queue.bufferedUuids()
-  for (const id of conv.owed.keys()) if (!queued.has(id)) conv.owed.delete(id)
-
-  const q = query({
-    prompt: conv.queue,
+function openClaudeSession(conv: Conversation, resume: string | null) {
+  return query({
+    prompt: conv.queue as AsyncIterable<ClaudeUserMessage>,
     options: {
       systemPrompt: { type: 'preset', preset: 'claude_code', append: OPERATOR_CONTEXT },
       cwd: conv.workdir,
@@ -2819,9 +2821,52 @@ async function runSession(conv: Conversation): Promise<void> {
           ? { behavior: 'allow' as const, updatedInput: input }
           : { behavior: 'deny' as const, message: '操作者在 QQ 上拒绝了这次调用' }
       },
-      mcpServers: { qq: conv.tools },
+      mcpServers: { qq: createSdkMcpServer(conv.tools) },
     } as any,
   })
+}
+
+function openCodexSession(conv: Conversation, resume: string | null) {
+  return new CodexSession({
+    cwd: conv.workdir,
+    resume,
+    instructions: OPERATOR_CONTEXT,
+    mode: conv.permissionMode,
+    tools: conv.tools.tools,
+    approve: (name, input) => askApproval(conv, name, input),
+    cancelInteraction: () => {
+      for (const [id, approval] of pendingApprovals) {
+        if (approval.conversation === conv.key) settleApproval(id, false)
+      }
+      for (const [id, question] of pendingQuestions) {
+        if (question.conversation === conv.key && !question.buttonsOnly) {
+          settleQuestion(id, groupOf(conv) ? JSON.stringify({ choice: null }) : '(轮次已结束)')
+        }
+      }
+    },
+  }, conv.queue)
+}
+
+/**
+ * Run one agent session for `conv` until it ends. Returns when the query
+ * closes.
+ */
+async function runSession(conv: Conversation): Promise<void> {
+  // The previous session's iterator may still be parked on this queue.
+  conv.queue.detachWaiters()
+
+  const resume = conv.sessionId()
+  log(`[${conv.key}] ${resume ? `resuming session ${resume}` : 'starting a new session'}`)
+
+  // Whatever the last session took and never answered went with it; only what
+  // is still queued is owed an answer by this one. Settled before query()
+  // exists: the queue may be read from the moment it does.
+  conv.inTurn = false
+  conv.turn = { human: false, agent: false }
+  const queued = conv.queue.bufferedUuids()
+  for (const id of conv.owed.keys()) if (!queued.has(id)) conv.owed.delete(id)
+
+  const q = BACKEND === 'codex' ? openCodexSession(conv, resume) : openClaudeSession(conv, resume)
   conv.query = q
 
   /**
@@ -3071,7 +3116,7 @@ async function runSession(conv: Conversation): Promise<void> {
       conv.sessionStarted = true
       // Persist immediately: a crash before the first reply should still leave
       // a resumable session behind.
-      if (m.session_id) conv.setSessionId(m.session_id)
+      if (m.session_id && !conv.restartReason) conv.setSessionId(m.session_id)
     } else if (m.type === 'system' && m.subtype === 'status' && m.compact_result) {
       log(`[${conv.key}] compact ${m.compact_result}${m.compact_error ? `: ${m.compact_error}` : ''}`)
       if (m.compact_result !== 'success') conv.compactWaiter?.({ ok: false, error: m.compact_error })
@@ -3110,6 +3155,43 @@ async function runSession(conv: Conversation): Promise<void> {
         if (launcher !== 'agent') {
           await traceSubagent(`${outcome}：${agent.description}，用时 ${took}（剩 ${subagents.size} 个）`)
         }
+      }
+    } else if (m.type === 'agent_text') {
+      if (!m.streamed && m.text.trim() && !conv.silent()) {
+        if (!streamer) streamer = await openStreamer()
+        await streamer.push(m.text)
+      }
+      streamedText = false
+      if (groupOf(conv)) await closeStreamer('group: text complete')
+    } else if (m.type === 'agent_tool') {
+      toolNames.set(m.id, m.name)
+      if (conv.traceLevel === 'full') {
+        const line = summariseTool(m.name, m.input, conv.workdir)
+        if (line) {
+          await traceBreak()
+          await trace(`${line}\n`)
+          traceStarted = true
+          lastKind = 'tools'
+        }
+      } else if (conv.traceLevel === 'balanced' && !m.name.startsWith('mcp__qq__')) {
+        await traceEndLine()
+        await traceNow(`⚙️ ${toolLabel(m.name)}`)
+        traceStarted = true
+        lastKind = 'tools'
+      }
+    } else if (m.type === 'agent_tool_result') {
+      const name = toolNames.get(m.id)
+      toolNames.delete(m.id)
+      if (conv.traceLevel === 'full' && name && m.output) {
+        const out = summariseResult(name, m.output)
+        if (out) await trace(`${out}\n`)
+      }
+    } else if (m.type === 'agent_context') {
+      conv.contextTokens = m.totalTokens
+      conv.autoCompactTried = false
+    } else if (m.type === 'agent_error') {
+      if (!conv.silent()) {
+        await conv.chat.send(`❌ Codex：${sanitize(m.message, 400)}`).catch(err => log('turn error notice failed:', err))
       }
     } else if (m.type === 'stream_event') {
       // Everything the operator sees is driven from here rather than from the
@@ -3424,6 +3506,7 @@ async function serve(conv: Conversation): Promise<void> {
     } catch (err) {
       log(`[${conv.key}] session ended with error:`, err)
     }
+    if (BACKEND === 'codex') await conv.sealStream()
     conv.query = null
     if (conv.parking) {
       conv.parking = false
@@ -3690,8 +3773,9 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
+  if (BACKEND === 'codex') await checkCodex()
   await connectGateway({ onMessage: handleMessage, onGroupMessage: handleGroupMessage, onButton: handleButton })
-  log(`bridge up, workdir=${priv.workdir}, mode=${priv.permissionMode}, state=${STATE_DIR}`)
+  log(`bridge up, backend=${BACKEND}, workdir=${priv.workdir}, mode=${priv.permissionMode}, state=${STATE_DIR}`)
 
   setTimeout(markHealthy, HEALTHY_AFTER_MS).unref()
 
@@ -3757,6 +3841,7 @@ async function shutdown(signal: string): Promise<void> {
       }
     }),
   )
+  if (BACKEND === 'codex') for (const conv of conversations.values()) conv.query?.close()
   closeGateway()
   process.exit(0)
 }

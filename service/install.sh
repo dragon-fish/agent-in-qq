@@ -15,11 +15,21 @@
 
 set -eu
 
-LABEL=local.claude-in-qq
-ROOT=$(cd "$(dirname "$0")/.." && pwd)
+ROOT=$(cd "$(dirname "$0")/.." && pwd -P)
+. "$ROOT/service/instance.sh"
+LABEL="local.$BACKEND-in-qq"
 DEST="$HOME/Library/LaunchAgents/$LABEL.plist"
 TARGET="gui/$(id -u)"
-LOG_DIR="${QQ_STATE_DIR:-$HOME/.claude/channels/qq}"
+LOG_DIR="$STATE_DIR"
+case "$BACKEND" in
+  claude) OTHER_LABEL=local.codex-in-qq ;;
+  codex) OTHER_LABEL=local.claude-in-qq ;;
+esac
+other_dir=$(launchctl print "$TARGET/$OTHER_LABEL" 2>/dev/null | sed -n 's/^[[:space:]]*working directory = //p')
+if [ -d "$other_dir" ] && [ "$(cd "$other_dir" && pwd -P)" = "$ROOT" ]; then
+  echo "Use a separate deployment checkout for $LABEL. $OTHER_LABEL uses this checkout." >&2
+  exit 1
+fi
 
 # Unload first, so the survivors of the check below are only the hand-started
 # ones. Two bridges hold the same gateway session and fight over it — messages
@@ -31,7 +41,7 @@ sleep 1
 # column, so a bun under a long home path shows up as "/Users/name" and never
 # matches. `pgrep -f` is no good either — it also matches any shell whose
 # command line merely mentions the path, including the one used to kill it.
-running=$(ps -axo pid=,args= | awk '$2 ~ /bun$/ && index($0, "src/index.ts") {print}')
+running=$(bridge_processes)
 if [ -n "$running" ]; then
   echo "! 有手动启动的 bridge 在跑，先停掉它："
   echo "$running"
@@ -45,7 +55,7 @@ PROXY=${https_proxy:-${HTTPS_PROXY:-}}
 NOPROXY=${no_proxy:-${NO_PROXY:-}}
 if [ -z "$PROXY" ]; then
   echo "! 环境里没有 https_proxy，生成的服务会直连。"
-  echo "  若 api.anthropic.com 在本地需要代理，请在交互式 shell 里重跑本脚本。"
+  echo "  若 Agent 需要代理，请在交互式 shell 里重跑本脚本。"
 fi
 
 # launchd inherits no shell profile, so a PATH that lost /opt/homebrew means
@@ -95,6 +105,10 @@ cat > "$DEST" <<PLIST
         <key>PATH</key>
         <string>$(xml "$PATH")</string>
 $PROXY_ENV
+        <key>QQ_AGENT_BACKEND</key>
+        <string>$BACKEND</string>
+        <key>QQ_STATE_DIR</key>
+        <string>$(xml "$STATE_DIR")</string>
         <key>LANG</key>
         <string>en_US.UTF-8</string>
     </dict>

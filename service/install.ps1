@@ -8,8 +8,8 @@
 # Stopping the task does not stop the bridge: Task Scheduler ends the launcher
 # but leaves bun running. To restart or stop, end bun itself —
 #
-#   Get-CimInstance Win32_Process -Filter "Name = 'bun.exe'" |
-#     Where-Object CommandLine -like '*src/index.ts*' |
+#   . .\service\instance.ps1
+#   Get-BridgeProcess claude |
 #     ForEach-Object { Stop-Process -Id $_.ProcessId }
 #
 # — and the watchdog trigger brings it back within a minute unless the task
@@ -20,11 +20,23 @@
 # Task Scheduler builds it from the registry, which is the real one — only
 # entries a $PROFILE adds on the fly are missing.
 
-$ErrorActionPreference = 'Stop'
+param(
+  [ValidateSet('claude', 'codex')]
+  [string]$Backend = $(if ($env:QQ_AGENT_BACKEND) { $env:QQ_AGENT_BACKEND } else { 'claude' }),
+  [string]$StateDir = $env:QQ_STATE_DIR
+)
 
-$TaskName = 'claude-in-qq'
+$ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'instance.ps1')
+
+$TaskName = "$Backend-in-qq"
 $Launcher = Join-Path $PSScriptRoot 'claude-in-qq.ps1'
-$LogDir = if ($env:QQ_STATE_DIR) { $env:QQ_STATE_DIR } else { Join-Path $HOME '.claude\channels\qq' }
+$LogDir = Resolve-BridgeStateDir $Backend $StateDir
+$OtherTaskName = if ($Backend -eq 'codex') { 'claude-in-qq' } else { 'codex-in-qq' }
+$OtherTask = Get-ScheduledTask -TaskName $OtherTaskName -ErrorAction SilentlyContinue
+if ($OtherTask -and $OtherTask.Actions.Arguments -like "*$Launcher*") {
+  throw "Use a separate deployment checkout for $TaskName. $OtherTaskName uses this checkout."
+}
 
 # Unregister first, so the watchdog cannot relaunch a bridge while the check
 # below asks you to stop it. Two bridges hold the same gateway session and
@@ -33,8 +45,7 @@ if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
   Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
 }
 
-$running = Get-CimInstance Win32_Process -Filter "Name = 'bun.exe'" |
-  Where-Object { $_.CommandLine -like '*src/index.ts*' }
+$running = Get-BridgeProcess $Backend
 if ($running) {
   Write-Host '! 有 bridge 在跑（手动启动的，或上一次安装留下的），先停掉它再重跑本脚本：'
   $running | ForEach-Object { Write-Host "  $($_.ProcessId)  $($_.CommandLine)" }
@@ -46,11 +57,11 @@ $Proxy = @($env:HTTPS_PROXY, $env:https_proxy) | Where-Object { $_ } | Select-Ob
 $NoProxy = @($env:NO_PROXY, $env:no_proxy) | Where-Object { $_ } | Select-Object -First 1
 if (-not $Proxy) {
   Write-Host '! 环境里没有 HTTPS_PROXY，生成的服务会直连。'
-  Write-Host '  若 api.anthropic.com 在本地需要代理，请先设好变量再重跑本脚本。'
+  Write-Host '  若 Agent 需要代理，请先设好变量再重跑本脚本。'
 }
 
 $pwsh = (Get-Process -Id $PID).Path
-$launcherArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$Launcher`""
+$launcherArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$Launcher`" -Backend $Backend -StateDir `"$LogDir`""
 if ($Proxy) { $launcherArgs += " -Proxy `"$Proxy`"" }
 if ($NoProxy) { $launcherArgs += " -NoProxy `"$NoProxy`"" }
 
@@ -73,13 +84,11 @@ $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) 
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
 
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $atLogon, $watchdog `
-  -Settings $settings -Principal $principal -Description "claude-in-qq bridge ($Launcher)" | Out-Null
+  -Settings $settings -Principal $principal -Description "$TaskName bridge ($Launcher)" | Out-Null
 
 Start-ScheduledTask -TaskName $TaskName
 Start-Sleep 5
 Write-Host "已安装计划任务 $TaskName"
-Get-CimInstance Win32_Process -Filter "Name = 'bun.exe'" |
-  Where-Object { $_.CommandLine -like '*src/index.ts*' } |
-  ForEach-Object { Write-Host "  bun pid $($_.ProcessId)" }
+Get-BridgeProcess $Backend | ForEach-Object { Write-Host "  bun pid $($_.ProcessId)" }
 Write-Host ''
 Write-Host "日志: Get-Content -Wait $LogDir\bridge.log"

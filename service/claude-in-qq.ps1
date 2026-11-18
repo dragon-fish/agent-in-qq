@@ -8,19 +8,22 @@
 
 param(
   [string]$Proxy = '',
-  [string]$NoProxy = ''
+  [string]$NoProxy = '',
+  [ValidateSet('claude', 'codex')]
+  [string]$Backend = 'claude',
+  [string]$StateDir = $env:QQ_STATE_DIR
 )
 
 $ErrorActionPreference = 'Stop'
 
 $Root = Split-Path $PSScriptRoot
-$StateDir = if ($env:QQ_STATE_DIR) { $env:QQ_STATE_DIR } else { Join-Path $HOME '.claude\channels\qq' }
+. (Join-Path $PSScriptRoot 'instance.ps1')
+$StateDir = Resolve-BridgeStateDir $Backend $StateDir
 $MaxBytes = 5MB # one generation kept
 
 # The task fires every minute, so most invocations find a healthy bridge and
 # have nothing to do. Only when one is missing does the timer become a restart.
-$running = Get-CimInstance Win32_Process -Filter "Name = 'bun.exe'" |
-  Where-Object { $_.CommandLine -like '*src/index.ts*' }
+$running = Get-BridgeProcess $Backend
 if ($running) { exit 0 }
 
 New-Item -ItemType Directory -Force $StateDir | Out-Null
@@ -106,4 +109,6 @@ if ($NoProxy) { $env:NO_PROXY = $NoProxy }
 Set-Location $Root
 # Tells /restart that exiting is safe: the task's one-minute watchdog starts the next one.
 $env:CLAUDE_IN_QQ_SUPERVISOR = 'schtasks'
-& "$HOME\.bun\bin\bun.exe" run src/index.ts *>> (Join-Path $StateDir 'service.log')
+$env:QQ_AGENT_BACKEND = $Backend
+$env:QQ_STATE_DIR = $StateDir
+& "$HOME\.bun\bin\bun.exe" run src/index.ts "--qq-agent-backend=$Backend" *>> (Join-Path $StateDir 'service.log')

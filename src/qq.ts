@@ -13,6 +13,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   statSync,
   unlinkSync,
@@ -20,12 +21,13 @@ import {
 } from 'node:fs'
 import { open } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { imageSize } from 'image-size'
 
 // ---------------------------------------------------------------- paths & env
 
-export const STATE_DIR = process.env.QQ_STATE_DIR ?? join(homedir(), '.claude', 'channels', 'qq')
+const CLAUDE_STATE_DIR = join(homedir(), '.claude', 'channels', 'qq')
+export const STATE_DIR = process.env.QQ_STATE_DIR ?? CLAUDE_STATE_DIR
 const ACCESS_FILE = join(STATE_DIR, 'access.json')
 const ENV_FILE = join(STATE_DIR, '.env')
 const LOG_FILE = join(STATE_DIR, 'bridge.log')
@@ -58,6 +60,15 @@ export function loadEnvFile(): void {
 }
 
 loadEnvFile()
+
+const configuredBackend = process.env.QQ_AGENT_BACKEND ?? 'claude'
+if (configuredBackend !== 'claude' && configuredBackend !== 'codex') throw new Error('QQ_AGENT_BACKEND must be claude or codex')
+export const BACKEND: 'claude' | 'codex' = configuredBackend
+// Resolve symlinks as well as literal paths before opening any bridge state.
+const statePath = (path: string) => existsSync(path) ? realpathSync(path) : resolve(path)
+if (BACKEND === 'codex' && (!process.env.QQ_STATE_DIR || statePath(STATE_DIR) === statePath(CLAUDE_STATE_DIR))) {
+  throw new Error('The Codex bot needs its own QQ_STATE_DIR')
+}
 
 const APP_ID = process.env.QQ_APP_ID
 const CLIENT_SECRET = process.env.QQ_CLIENT_SECRET
