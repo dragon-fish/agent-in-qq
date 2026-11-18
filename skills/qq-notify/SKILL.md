@@ -5,8 +5,7 @@ description: Use when the user asks to be pinged on QQ when something finishes �
 
 # 给用户的 QQ 捎话
 
-本机常驻着 claude-in-qq——用户自己的 QQ bot，平时他在 QQ 私聊里遥控另一个 Claude Code 会话。这个
-skill 让**任意**会话借用那条通道，给用户手机上发一条消息。
+Agent in QQ 的 bot 可以向用户发送单向通知。用 `QQ_STATE_DIR` 选择 bot 的状态目录，采用默认配置时使用 Claude bot。
 
 ```bash
 qq-notify --from "<本次对话在做什么>" "<消息正文>"
@@ -65,19 +64,18 @@ qq-notify --from "出图" "左原图右修复" MEDIA:/abs/board.png MEDIA:./deta
 ## 用户那边会看到什么
 
 ```
-**重构订单模块**（`~/GitRepositories/foo`）下的 Claude 给你留言：
+**重构订单模块**（`~/GitRepositories/foo`）发来通知：
 
 测试全绿，可以合了
 ```
 
-bridge 里那个 Claude 也会在下次对话时被告知「有另一个会话借了这条通道」，所以不会出现用户提起某事、
-而它毫无印象的情况——这个不用你操心，自动的。
+负责该 bot 的 agent 会在下一轮看到通知记录。
 
 ## 出错了怎么办
 
 | 报错 | 含义 |
 | --- | --- |
-| `QQ 凭据缺失` | bot 还没配过，需要用户在 claude-in-qq 项目目录跑 `bun run onboard` |
+| `QQ 凭据缺失` | bot 还没配过，由用户在选定的状态目录配置对应 bot，见项目 README |
 | `白名单为空` | 没有可送达的人，需要用户跑 `bun run pair` |
 | `command not found` | 软链没了。它指向项目里的 `src/notify.ts` |
 

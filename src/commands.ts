@@ -325,7 +325,7 @@ register(
         const alt = c.aliases?.length ? ` (${c.aliases.map(a => `\`/${a}\``).join(', ')})` : ''
         lines.push(`- \`${c.usage}\`${alt} — ${c.summary}`)
       }
-      lines.push('', `其余消息都直接发给 ${deps.backend === 'codex' ? 'Codex' : 'Claude'}。`)
+      lines.push('', `其余消息都直接发给 ${deps.backend === 'codex' ? 'Codex' : 'Claude Code'}。`)
       await deps.reply(lines.join('\n'))
     },
   },
@@ -920,7 +920,7 @@ register(
         lines.push('拿不到 git 信息：不在仓库里，或者 git 不可用。')
       }
       if (deps.backend === 'codex') lines.push('后端：Codex App Server')
-      else if (SDK_VERSION) lines.push(`Agent SDK：\`${SDK_VERSION}\``)
+      else lines.push(SDK_VERSION ? `后端：Claude Code（Agent SDK \`${SDK_VERSION}\`）` : '后端：Claude Code')
       lines.push(`已运行：${uptimeWords()}`)
       await deps.reply(lines.join('\n'))
     },

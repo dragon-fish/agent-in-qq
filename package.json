@@ -1,7 +1,7 @@
 {
   "name": "claude-qq-bridge",
   "version": "0.0.1",
-  "description": "Drive Claude Code from QQ private chat — remote tool approval, session control, scan-to-configure.",
+  "description": "Use Claude Code or Codex from QQ with streaming replies, tool approvals, and session controls.",
   "license": "MIT",
   "author": "dragon-fish <dragon-fish@qq.com>",
   "type": "module",

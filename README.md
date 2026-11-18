@@ -6,7 +6,7 @@
 
 ## 安装
 
-直接把这句话扔给你的 Claude Code：
+可以把这句话交给 Claude Code 或 Codex：
 
 ```
 请阅读并帮我安装这个：https://github.com/dragon-fish/agent-in-qq
@@ -128,7 +128,7 @@ bun run onboard
 用户在手机上确认后，腾讯侧会自动创建 bot 应用、下发凭据、并把 bot 加为好友。凭据落在
 `~/.claude/channels/qq/.env`（600）。
 
-打开链接的那个 QQ 号自动进白名单，所以正常情况下**用户点完就已经可以聊天了**，不需要再走第 3 步。
+打开链接的 QQ 账号会自动加入白名单。启动服务后即可私聊 bot。第 3 步用于手动授权。
 
 ### 3. 给别人授权（可选）👤 需要用户
 
@@ -235,7 +235,7 @@ Get-Content -Wait ~/.claude/channels/qq/bridge.log    # 日志
 
 在第二份部署 checkout 中装好依赖。Codex CLI 需要在服务的 PATH 上并已登录，可用 `codex login status` 检查。本文以 Codex CLI 0.169.0 为验证版本。
 
-用 QQ 开放平台创建第二个 bot，把它的 `QQ_APP_ID` 和 `QQ_CLIENT_SECRET` 分别写入 Codex 状态目录里的 `.env`。如果该 bot 使用 QQ 沙箱，再加入 `QQ_SANDBOX=1`。macOS 示例：
+用 QQ 开放平台创建第二个 bot，把它的 `QQ_APP_ID` 和 `QQ_CLIENT_SECRET` 分别写入 Codex 状态目录里的 `.env`。如果该 bot 使用 QQ 沙箱，再加入 `QQ_SANDBOX=1`。先在 macOS 上准备状态目录和凭据文件：
 
 ```sh
 export QQ_AGENT_BACKEND=codex
@@ -243,17 +243,15 @@ export QQ_STATE_DIR="$HOME/.codex/channels/qq"
 mkdir -p -m 700 "$QQ_STATE_DIR"
 touch "$QQ_STATE_DIR/.env"
 chmod 600 "$QQ_STATE_DIR/.env"
-service/install.sh
 ```
 
-也可以向该目录使用 `bun run onboard` 扫码写入凭据。Windows 用 `pwsh service/install.ps1 -Backend codex -StateDir <绝对路径>` 安装 `codex-in-qq` 计划任务。两个有自动回滚的服务使用不同 checkout。macOS 下通过 `launchctl kickstart -k gui/$UID/local.codex-in-qq` 重启 Codex bot，或在它的 QQ 私聊输入 `/restart`。
+把第二个 bot 的凭据填入文件，或在同一终端运行 `bun run onboard` 扫码配置。然后运行 `service/install.sh`。Windows 用 `pwsh service/install.ps1 -Backend codex -StateDir <绝对路径>` 安装 `codex-in-qq` 计划任务。两个有自动回滚的服务使用不同 checkout。macOS 下通过 `launchctl kickstart -k gui/$UID/local.codex-in-qq` 重启 Codex bot，或在它的 QQ 私聊输入 `/restart`。
 
 第一次私聊 Codex bot 时，用同一个 `QQ_STATE_DIR` 执行本机 `bun run pair <配对码>`。Codex 默认用 `workspace-write` 沙箱，审批通过 QQ 按钮。用 `/mode` 选择 Codex 的沙箱模式，用 `/cwd` 选择工作目录。
 
 ## 捎话（附带功能，可装可不装）
 
-这一节和主功能无关，不装完全不影响 QQ 遥控。装了之后，任意目录的其他 CC 会话（或脚本、CI）可以给你的
-QQ 发一条单向通知：
+安装后，其他终端里的 agent、脚本或 CI 可以给你的 QQ 发单向通知。用 `QQ_STATE_DIR` 指定收发通知的 bot。
 
 ```bash
 qq-notify --from "重构订单模块" "测试全绿，可以合了"
@@ -271,12 +269,9 @@ skills/install.sh --uninstall   # 卸
 一声」它就知道该干什么。软链而非拷贝，改仓库即生效，没有第二份要同步。
 
 `skills/` 下每个目录都是一个 skill，装的时候全部软链过去，加新的不必改脚本。除 `qq-notify` 外还有
-`patch-cc-in-qq`——写给**要改这个仓库本身**的 Claude，只讲源码里读不到的事：重启时怎么不把正在对话的
-自己弄断线、QQ 的接口文档该去哪找、没有测试框架时怎么验证。结构和分层不写进去，让它直接读源码更准，
-也不会过期。
+`patch-cc-in-qq` 用于修改这个仓库，说明重启时如何避开正在使用的会话、QQ 的接口文档该去哪找，以及如何验证改动。
 
-消息带上来源和目录，因为它落在你和 bridge 聊天的同一个窗口里。bridge 那个 Claude 也会在下次对话时
-被告知有别的会话借用了通道——否则你提起某条消息，它会毫无印象。
+消息带上来源和目录。负责此 bot 的会话下次收到消息时，也会看到通知记录。
 
 **单向**：你的回复会进到 bridge 会话，不会回到发起方。所以只发结论，不要发问题。
 
@@ -291,11 +286,12 @@ skills/install.sh --uninstall   # 卸
   是不是主人，会拒绝可能损害主人的请求——但这一层只靠提示词约束，工具调用本身照常走审批
 - `access.json` 缺失或损坏时按空白名单处理（拒绝所有），不是放行
 - 待审批的工具入参放在围栏代码块里，免得内容自己伪装成 markdown，让你看不清在批什么
-- 默认 `auto` 权限模式。`/mode` 可切 `default`（每个危险操作都问）；`bypassPermissions`（所有工具调用
+- Claude Code 默认 `auto` 权限模式。`/mode` 可切 `default`（每个危险操作都问）；`bypassPermissions`（所有工具调用
   不经审批）只在私聊提供，群会话无论保存的状态或 `QQ_PERMISSION_MODE` 怎么写都进不去——群里非主人的 op 也能开一轮对话
-- 浏览器工具和其他工具一样走审批；但 `auto` 模式下分类器放行的浏览器操作会跳过扩展自己的按站点授权，
+- Codex 默认 `workspace-write` 并按需审批。私聊可切换到 `danger-full-access`，群聊只提供 `read-only` 和 `workspace-write`。
+- Claude in Chrome 和其他工具一样走审批；但 `auto` 模式下分类器放行的浏览器操作会跳过扩展自己的按站点授权，
   而浏览器里是你所有网站的登录态。不想让它碰的站点，在扩展设置里拒绝
-- 凭据存在 `~/.claude/channels/qq/.env`，权限 600
+- 凭据保存在各 bot 状态目录里的 `.env`，文件权限为 600。
 
 ## 已知风险
 

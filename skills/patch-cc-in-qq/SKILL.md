@@ -1,12 +1,11 @@
 ---
 name: patch-cc-in-qq
-description: Use when asked to change the claude-in-qq bridge itself — its slash commands, QQ transport, streamed output, or session lifecycle — and whenever an edit to it has to take effect on the process that is already running.
+description: Use when asked to change the agent-in-qq bridge — its slash commands, QQ transport, streamed output, or session lifecycle — and whenever an edit to it has to take effect on the process that is already running.
 ---
 
-# 改 claude-in-qq 这个桥接
+# 修改 Agent in QQ
 
-claude-in-qq 让用户在 QQ 私聊里遥控 Claude Code。改它跟改别的仓库有一点根本不同：
-**跑着的那个进程可能就是你自己**。
+在修改服务前识别会话由哪个 QQ bot 转发，并核对该 bot 的部署目录和状态目录。
 
 ## 先确认你是不是跑在里面
 
@@ -42,7 +41,7 @@ claude-in-qq 让用户在 QQ 私聊里遥控 Claude Code。改它跟改别的仓
 **别拿重启当验证手段。** 能在本地跑通的先跑通，重启只用来确认最终效果——每一次重启都
 要打断一场对话。
 
-**本地试跑必须去掉凭据。** 由桥接拉起的会话，环境里就带着 `QQ_APP_ID` / `QQ_CLIENT_SECRET`，
+**本地试跑必须去掉凭据。** 环境中可能已有 `QQ_APP_ID` / `QQ_CLIENT_SECRET`，
 换个 `QQ_STATE_DIR` 拦不住——试跑会真的连上 QQ，成为同一个 bot 的第二个网关，抢走正在跑的那个
 的消息。只想验证能否启动时，用 `env -u QQ_APP_ID -u QQ_CLIENT_SECRET`，配一个临时状态目录，
 看它停在「凭据缺失」那一行。

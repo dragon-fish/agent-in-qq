@@ -19,7 +19,7 @@
  *
  * Every message is labelled with its origin, because the operator is already
  * chatting with the bridge in that same QQ window and an unattributed line
- * would read as something the bridge's Claude said.
+ * would read as something the bridge's agent said.
  *
  * These are active messages against a 1000/day account quota, so they are for
  * things worth interrupting someone over, not progress chatter.
@@ -167,8 +167,8 @@ if (recent.length >= DAILY_MAX) {
 const cwd = process.cwd().replace(homedir(), '~')
 const origin = from || basename(process.cwd())
 const header = from
-  ? `**${from}**（\`${cwd}\`）下的 Claude 给你留言：`
-  : `\`${cwd}\` 下的 Claude 给你留言：`
+  ? `**${from}**（\`${cwd}\`）发来通知：`
+  : `\`${cwd}\` 发来通知：`
 
 // The attribution leads whatever comes first; a bare attachment would read as
 // something the bridge's agent sent.

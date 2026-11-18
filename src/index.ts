@@ -837,7 +837,7 @@ function withCommandLog(conv: Conversation, text: string): string {
     const reboot = restarted.rebooted ? '这台机器在此期间重启过。' : ''
     lines.push(
       '<system-reminder>\n' +
-        `claude-in-qq 这个桥接进程在 ${hhmm(restarted.at)} 重启过，本 session 是从磁盘 resume 回来的。` +
+        `Agent in QQ 在 ${hhmm(restarted.at)} 重启了此 bot 的服务，并恢复了保存的会话。` +
         `${how}${down}。${reboot}\n` +
         '上下文接得回来，进程里的状态接不回来——重启那一刻正在跑的工具调用、还没答复的审批和提问、' +
         '没发完的回复，都不会有结果了。若你记得自己在等什么，那件事已经不在了。\n' +
@@ -3835,7 +3835,7 @@ async function shutdown(signal: string): Promise<void> {
       try {
         // Only where a reply was actually in flight. A restart while idle needs
         // no apology, and nobody wants a notification for one.
-        if (await conv.sealStream()) await conv.chat.send('⏸ claude-in-qq 正在断开连接。')
+        if (await conv.sealStream()) await conv.chat.send('⏸ Agent in QQ 正在断开连接。')
       } catch (err) {
         log(`[${conv.key}] shutdown notice failed:`, err)
       }

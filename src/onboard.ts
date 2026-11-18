@@ -195,8 +195,8 @@ export async function qrRegister(timeoutSeconds = 600): Promise<{
             `    App ID:  ${result.appId}\n` +
             `    你的 openid: ${result.userOpenid}（已加入白名单）\n` +
             `    凭据已写入 ${ENV_FILE}\n\n` +
-            `  接下来重启 Claude Code：\n` +
-            `    claude --dangerously-load-development-channels server:qq\n\n`,
+            `  用配置时的 QQ_AGENT_BACKEND 和 QQ_STATE_DIR 启动桥接：\n` +
+            `    bun run start\n\n`,
         )
         return { appId: result.appId, userOpenid: result.userOpenid }
       }
