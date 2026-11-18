@@ -2988,6 +2988,18 @@ async function runSession(conv: Conversation): Promise<void> {
     if (traceStarted && !traceTail.endsWith('\n')) await trace('\n')
   }
 
+  // Append names immediately so the progress line is visible while tools run.
+  async function traceBalancedTool(name: string): Promise<void> {
+    if (lastKind === 'tools') {
+      await traceNow(`、${toolLabel(name)}`)
+      return
+    }
+    await traceEndLine()
+    await traceNow(`⚙️ ${toolLabel(name)}`)
+    traceStarted = true
+    lastKind = 'tools'
+  }
+
   conv.sealStream = closeStreamer
   conv.streamOpen = () => streamer !== null
 
@@ -3159,6 +3171,8 @@ async function runSession(conv: Conversation): Promise<void> {
     } else if (m.type === 'agent_text') {
       if (!m.streamed && m.text.trim() && !conv.silent()) {
         if (!streamer) streamer = await openStreamer()
+        traceStarted = false
+        lastKind = null
         await streamer.push(m.text)
       }
       streamedText = false
@@ -3174,10 +3188,7 @@ async function runSession(conv: Conversation): Promise<void> {
           lastKind = 'tools'
         }
       } else if (conv.traceLevel === 'balanced' && !m.name.startsWith('mcp__qq__')) {
-        await traceEndLine()
-        await traceNow(`⚙️ ${toolLabel(m.name)}`)
-        traceStarted = true
-        lastKind = 'tools'
+        await traceBalancedTool(m.name)
       }
     } else if (m.type === 'agent_tool_result') {
       const name = toolNames.get(m.id)
@@ -3311,18 +3322,7 @@ async function runSession(conv: Conversation): Promise<void> {
               lastKind = 'tools'
             }
           } else if (conv.traceLevel === 'balanced' && !b.name.startsWith('mcp__qq__') && !isSubagentTool(b.name)) {
-            // Names accumulate along one line — a stream can only append, so
-            // the line is built as it goes rather than rewritten at the end.
-            // Written straight through: without a newline to end it, a
-            // buffered write would sit invisible until the next entry.
-            if (lastKind === 'tools') {
-              await traceNow(`、${toolLabel(b.name)}`)
-            } else {
-              await traceEndLine()
-              await traceNow(`⚙️ ${toolLabel(b.name)}`)
-              traceStarted = true
-              lastKind = 'tools'
-            }
+            await traceBalancedTool(b.name)
           }
         }
       }
