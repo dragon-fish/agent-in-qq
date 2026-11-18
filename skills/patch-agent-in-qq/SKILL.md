@@ -1,6 +1,6 @@
 ---
 name: patch-agent-in-qq
-description: Use when asked to change the agent-in-qq bridge — its slash commands, QQ transport, streamed output, or session lifecycle — and whenever an edit to it has to take effect on the process that is already running.
+description: Use when changing Agent in QQ (formerly claude-in-qq), including slash commands, QQ transport, streaming, and session lifecycle, or applying a change to a running bridge.
 ---
 
 # 修改 Agent in QQ
