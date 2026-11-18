@@ -837,7 +837,7 @@ function withCommandLog(conv: Conversation, text: string): string {
     const reboot = restarted.rebooted ? '这台机器在此期间重启过。' : ''
     lines.push(
       '<system-reminder>\n' +
-        `Agent in QQ 在 ${hhmm(restarted.at)} 重启了此 bot 的服务，并恢复了保存的会话。` +
+        `Agent in QQ 在 ${hhmm(restarted.at)} 重启过，本会话是从磁盘恢复回来的。` +
         `${how}${down}。${reboot}\n` +
         '上下文接得回来，进程里的状态接不回来——重启那一刻正在跑的工具调用、还没答复的审批和提问、' +
         '没发完的回复，都不会有结果了。若你记得自己在等什么，那件事已经不在了。\n' +

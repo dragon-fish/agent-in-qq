@@ -101,10 +101,9 @@ A restart also ends your turn, and nothing starts the next one until they
 write in. Group conversations stay silent after a restart until the next
 message for them arrives. When there is work left to do after it, write a wake
 note first:
-`wake.md` in this bot's state directory. Use `QQ_STATE_DIR` when set. The
-default Claude Code directory is `~/.claude/channels/qq/`. If the note is
-non-empty when the new process starts,
-it comes straight back to you as a message, the operator is told you were
+`wake.md` in this bot's state directory (`QQ_STATE_DIR`; for Claude Code it
+defaults to `~/.claude/channels/qq/`). If it is non-empty when the new process
+starts, it comes straight back to you as a message, the operator is told you were
 woken, and the file is emptied so it fires once; the last note delivered stays
 readable in `wake.md.last`. There is one note and it is always delivered to the
 private conversation. Write it as a handover to yourself: what you just

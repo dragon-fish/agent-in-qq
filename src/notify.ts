@@ -167,8 +167,8 @@ if (recent.length >= DAILY_MAX) {
 const cwd = process.cwd().replace(homedir(), '~')
 const origin = from || basename(process.cwd())
 const header = from
-  ? `**${from}**（\`${cwd}\`）发来通知：`
-  : `\`${cwd}\` 发来通知：`
+  ? `**${from}**（\`${cwd}\`）下的 agent 给你留言：`
+  : `\`${cwd}\` 下的 agent 给你留言：`
 
 // The attribution leads whatever comes first; a bare attachment would read as
 // something the bridge's agent sent.

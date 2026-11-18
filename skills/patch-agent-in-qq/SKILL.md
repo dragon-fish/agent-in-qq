@@ -5,7 +5,11 @@ description: Use when changing Agent in QQ (formerly claude-in-qq), including sl
 
 # 修改 Agent in QQ
 
-在修改服务前识别会话由哪个 QQ bot 转发，并核对该 bot 的部署目录和状态目录。
+Agent in QQ 让用户在 QQ 里遥控 Claude Code 或 Codex。改它跟改别的仓库有一点根本不同：
+**跑着的那个进程可能就是你自己**。
+
+一台机器上可能同时跑着几个 bot（每个后端一个），各有自己的部署目录和状态目录。动手前先认清
+要改、要重启的是哪一个。
 
 ## 先确认你是不是跑在里面
 
@@ -41,7 +45,7 @@ description: Use when changing Agent in QQ (formerly claude-in-qq), including sl
 **别拿重启当验证手段。** 能在本地跑通的先跑通，重启只用来确认最终效果——每一次重启都
 要打断一场对话。
 
-**本地试跑必须去掉凭据。** 环境中可能已有 `QQ_APP_ID` / `QQ_CLIENT_SECRET`，
+**本地试跑必须去掉凭据。** 由桥接拉起的会话，环境里就带着 `QQ_APP_ID` / `QQ_CLIENT_SECRET`，
 换个 `QQ_STATE_DIR` 拦不住——试跑会真的连上 QQ，成为同一个 bot 的第二个网关，抢走正在跑的那个
 的消息。只想验证能否启动时，用 `env -u QQ_APP_ID -u QQ_CLIENT_SECRET`，配一个临时状态目录，
 看它停在「凭据缺失」那一行。
