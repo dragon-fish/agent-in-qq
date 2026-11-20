@@ -288,6 +288,15 @@ class MessageQueue implements AsyncIterable<SDKUserMessage> {
     return new Set(this.buffered.map(m => m.uuid))
   }
 
+  peekBuffered(index: number): SDKUserMessage | undefined {
+    return this.buffered[index]
+  }
+
+  removeBuffered(uuid: string): void {
+    const index = this.buffered.findIndex(m => m.uuid === uuid)
+    if (index !== -1) this.buffered.splice(index, 1)
+  }
+
   async *[Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
     while (true) {
       const buffered = this.buffered.shift()
@@ -660,7 +669,7 @@ class Conversation {
    * qq_message_agent, and posts here only on purpose, with qq_say. A QQ
    * message the turn takes makes it an ordinary one from that point on.
    *
-   * Decided by what Claude Code says the turn took (see `take`), never by what
+   * Decided by what the backend says the turn took (see `take`), never by what
    * arrived since the last result. Claude Code folds a queued message into a
    * running turn only at a tool-result boundary; one that arrives during the
    * turn's last model call is not part of it but starts the next turn, with a
@@ -675,8 +684,8 @@ class Conversation {
   }
 
   /**
-   * Claude Code took the message `uuid` into the turn under way: as the prompt
-   * that starts it, or folded in at a tool-result boundary. Every message owed
+   * The backend took the message `uuid` into the turn under way: as the prompt
+   * that starts it, or as a mid-turn input. Every message owed
    * before it was taken too — messages sent close together run as one turn,
    * and an older producer names only the last of them.
    */
@@ -1638,6 +1647,7 @@ function enqueue(conv: Conversation, text: string, images: FetchedImage[], from:
   }))
   const uuid = conv.queue.push(images.length ? [...blocks, { type: 'text', text }] : text)
   conv.owed.set(uuid, from)
+  if (conv.query instanceof CodexSession) conv.query.inputAvailable()
 }
 
 /**
@@ -3111,8 +3121,10 @@ async function runSession(conv: Conversation): Promise<void> {
     // started shows up only on the result, too late for the text after it.
     if (m.type === 'command_lifecycle') {
       reportsMessages = true
-      if (m.state === 'started') conv.take(m.command_uuid)
-      else if (m.state === 'completed' || m.state === 'cancelled') conv.owed.delete(m.command_uuid)
+      if (m.state === 'started') {
+        conv.take(m.command_uuid)
+        if (m.steered) await closeStreamer('operator message joins')
+      } else if (m.state === 'completed' || m.state === 'cancelled') conv.owed.delete(m.command_uuid)
       continue
     }
     if (m.type === 'stream_event' || m.type === 'assistant' || m.type === 'result') {
