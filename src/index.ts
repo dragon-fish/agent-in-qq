@@ -11,7 +11,7 @@
  */
 
 import { createSdkMcpServer, listSessions, query, tool, type SDKUserMessage as ClaudeUserMessage } from '@anthropic-ai/claude-agent-sdk'
-import { checkCodex, CODEX_DEFAULT_MODE, CodexSession, codexModes, listCodexSessions } from './codex.js'
+import { checkCodex, CodexSession, initialCodexMode, listCodexSessions } from './codex.js'
 import { z } from 'zod'
 import { buildHead, dispatch, panelEntries, type CommandDeps } from './commands.js'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
@@ -643,14 +643,13 @@ class Conversation {
     const group = key.startsWith(GROUP_PREFIX) ? key.slice(GROUP_PREFIX.length) : null
     this.workdir = saved.workdir ?? (group ? groupWorkdir(group) : (process.env.QQ_BRIDGE_CWD ?? homedir()))
     if (group && !saved.workdir) mkdirSync(this.workdir, { recursive: true })
-    const defaultMode = BACKEND === 'codex' ? CODEX_DEFAULT_MODE : 'auto'
-    const mode = saved.permission_mode ?? process.env.QQ_PERMISSION_MODE ?? defaultMode
+    const mode = saved.permission_mode ?? process.env.QQ_PERMISSION_MODE ?? 'auto'
     // bypassPermissions is the owner's, in private chat: in a group non-owner
     // ops start turns. allowDangerouslySkipPermissions only stops switching
     // into it mid-session — a session launched in it runs in it — so a group
     // must never be launched with it, whatever its state or the env says.
     this.permissionMode = BACKEND === 'codex'
-      ? (codexModes(!group).some(option => option.value === mode) ? mode : defaultMode)
+      ? initialCodexMode(Boolean(group), saved.permission_mode, process.env.QQ_PERMISSION_MODE)
       : group && mode === 'bypassPermissions' ? 'auto' : mode
     this.traceLevel = saved.trace_level ?? (group ? 'off' : 'full')
     this.name = saved.name ?? null
@@ -2842,6 +2841,7 @@ function openCodexSession(conv: Conversation, resume: string | null) {
     resume,
     instructions: OPERATOR_CONTEXT,
     mode: conv.permissionMode,
+    groupChat: groupOf(conv) !== null,
     tools: conv.tools.tools,
     approve: (name, input) => askApproval(conv, name, input),
     cancelInteraction: () => {

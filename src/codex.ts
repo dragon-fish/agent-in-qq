@@ -138,6 +138,7 @@ type CodexOptions = {
   resume: string | null
   instructions: string
   mode: string
+  groupChat: boolean
   tools: Tool[]
   approve(name: string, input: Record<string, unknown>): Promise<boolean>
   cancelInteraction(): void
@@ -158,21 +159,28 @@ type ActiveTurn = {
 type ContextUsage = { model: string; totalTokens: number; maxTokens: number; percentage?: number }
 
 export const CODEX_DEFAULT_MODE = 'workspace-write'
+export const CODEX_FULL_ACCESS = 'danger-full-access'
 
-export function codexModes(privateChat: boolean) {
-  const modes = [
+export function codexModes(groupChat: boolean) {
+  return [
     { value: 'read-only', label: '只读', desc: '只读沙箱，额外权限需审批' },
-    { value: 'workspace-write', label: '工作区可写', desc: '工作区外写入及网络访问需审批' },
+    {
+      value: CODEX_DEFAULT_MODE, label: '工作区可写',
+      desc: groupChat ? '工作区外写入及网络访问由 Codex 自动审批' : '工作区外写入及网络访问需审批',
+    },
+    { value: CODEX_FULL_ACCESS, label: '完整访问', desc: '按本机账号权限运行，Codex 按需请求审批' },
   ]
-  if (privateChat) {
-    modes.push({ value: 'danger-full-access', label: '完整访问', desc: '按本机账号权限运行，Codex 按需请求审批' })
-  }
-  return modes
+}
+
+export function initialCodexMode(groupChat: boolean, savedMode?: string, envMode?: string) {
+  // Group full access requires an explicit choice for that conversation.
+  const mode = savedMode ?? (groupChat && envMode === CODEX_FULL_ACCESS ? undefined : envMode)
+  return codexModes(groupChat).find(option => option.value === mode)?.value ?? CODEX_DEFAULT_MODE
 }
 
 function sandboxPolicy(mode: string) {
   if (mode === 'read-only') return { type: 'readOnly', networkAccess: false }
-  if (mode === 'danger-full-access') return { type: 'dangerFullAccess' }
+  if (mode === CODEX_FULL_ACCESS) return { type: 'dangerFullAccess' }
   return {
     type: 'workspaceWrite',
     writableRoots: [],
@@ -339,13 +347,17 @@ export class CodexSession implements AsyncIterable<Frame> {
     this.emit({ type: 'stream_event', event })
   }
 
+  private get approvalsReviewer() {
+    return this.options.groupChat && this.mode === CODEX_DEFAULT_MODE ? 'auto_review' : 'user'
+  }
+
   private async run() {
     await this.rpc.initialize()
     const params = {
       cwd: this.options.cwd,
       sandbox: this.mode,
       approvalPolicy: 'on-request',
-      approvalsReviewer: 'user',
+      approvalsReviewer: this.approvalsReviewer,
       developerInstructions: this.options.instructions,
     }
     const resume = this.options.resume
@@ -403,7 +415,7 @@ export class CodexSession implements AsyncIterable<Frame> {
           input: inputFor(message),
           model: this.model,
           approvalPolicy: 'on-request',
-          approvalsReviewer: 'user',
+          approvalsReviewer: this.approvalsReviewer,
           sandboxPolicy: sandboxPolicy(this.mode),
         })
         if (this.active === active) {
