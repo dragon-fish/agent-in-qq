@@ -10,7 +10,7 @@
  * the session lifecycle.
  */
 
-import { codexModes } from './codex.js'
+import { CODEX_FULL_ACCESS, codexModes } from './codex.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -498,7 +498,7 @@ register(
       const q = await requireQuery(deps)
       if (!q) return
 
-      const modes = deps.backend === 'codex' ? codexModes(deps.where() === 'private') : [
+      const modes = deps.backend === 'codex' ? codexModes(deps.where() === 'group') : [
         { value: 'auto', label: 'auto 智能判断', desc: '分类器放行常规操作，只对有风险的问你' },
         { value: 'default', label: 'default 每步都问', desc: '任何写入和命令都要批准' },
         { value: 'acceptEdits', label: 'acceptEdits 改文件免批', desc: '文件编辑自动通过，命令仍要批' },
@@ -523,7 +523,9 @@ register(
       }
 
       if (arg) {
-        const hit = modes.find(m => m.value.toLowerCase() === arg.toLowerCase())
+        const name = arg.toLowerCase()
+        const requested = deps.backend === 'codex' && name === 'full' ? CODEX_FULL_ACCESS : name
+        const hit = modes.find(m => m.value.toLowerCase() === requested)
         if (!hit) {
           await deps.reply(`未知模式 \`${arg}\`，可选：${modes.map(m => m.value).join('、')}`)
           return

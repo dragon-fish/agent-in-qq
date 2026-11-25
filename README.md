@@ -23,7 +23,7 @@ Codex 的凭据和启动方式见[配置第二个 Codex bot](#配置第二个-co
   markdown 正常渲染，QQ 支持加粗、行内代码、列表、围栏代码块、链接、表格
 - **看得见过程**：思考摘要和工具调用写进同一条流里的代码块，长了 QQ 会自己折叠（约 15 行），
   所以长任务不会把答案埋掉，也不额外花消息条数。`/verbose` 可切三档：完整过程 / 只报进度 / 只要答案
-- **审批**：后端需要审批时弹按钮，点「允许」或「拒绝」。Claude 默认 `auto`，Codex 默认工作区可写、按需审批。
+- **审批**：人工审批发到主人私聊，点「允许」或「拒绝」。Claude 默认 `auto`。Codex 默认工作区可写，群聊用自动审批，私聊用人工审批。
 - **提问**：agent 需要你拿主意时，可以通过 `qq_ask` 推一组按钮。
 - **斜杠指令**：`/help` `/stop` `/clear` `/compact` `/context` `/usage` `/model` `/mode` `/verbose` `/resume` `/cwd` `/status` `/version` `/op` `/nick` `/group` `/restart`。
   `/restart`（别名 `/reload`）立即重启进程、加载新代码，只在以服务方式运行时可用（launchd 或 Windows 计划任务）。
@@ -247,7 +247,7 @@ chmod 600 "$QQ_STATE_DIR/.env"
 
 把第二个 bot 的凭据填入文件，或在同一终端运行 `bun run onboard` 扫码配置。然后运行 `service/install.sh`。Windows 用 `pwsh service/install.ps1 -Backend codex -StateDir <绝对路径>` 安装 `codex-in-qq` 计划任务。两个有自动回滚的服务使用不同 checkout。macOS 下通过 `launchctl kickstart -k gui/$UID/local.codex-in-qq` 重启 Codex bot，或在它的 QQ 私聊输入 `/restart`。
 
-第一次私聊 Codex bot 时，用同一个 `QQ_STATE_DIR` 执行本机 `bun run pair <配对码>`。Codex 默认用 `workspace-write` 沙箱，审批通过 QQ 按钮。用 `/mode` 选择 Codex 的沙箱模式，用 `/cwd` 选择工作目录。
+第一次私聊 Codex bot 时，用同一个 `QQ_STATE_DIR` 执行本机 `bun run pair <配对码>`。用 `/mode` 选择 Codex 的沙箱模式，用 `/cwd` 选择工作目录。
 
 ## 捎话（附带功能，可装可不装）
 
@@ -292,8 +292,8 @@ skills/install.sh --uninstall   # 卸
 - 待审批的工具入参放在围栏代码块里，免得内容自己伪装成 markdown，让你看不清在批什么
 - Claude Code 默认 `auto` 权限模式。`/mode` 可切 `default`（每个危险操作都问）；`bypassPermissions`（所有工具调用
   不经审批）只在私聊提供，群会话无论保存的状态或 `QQ_PERMISSION_MODE` 怎么写都进不去——群里非主人的 op 也能开一轮对话
-- Codex 默认 `workspace-write` 沙箱，越界操作走审批。`danger-full-access` 只在私聊提供，群会话只能选
-  `read-only` 或 `workspace-write`
+- Codex 默认 `workspace-write` 沙箱，群聊的权限请求由 Codex 自动审核。主人可在任意群用 `/mode full`
+  切到 `danger-full-access`，使该群按本机账号权限运行。群内 op 仍可触发任务。`/mode workspace-write` 恢复工作区沙箱
 - Claude in Chrome 和其他工具一样走审批；但 `auto` 模式下分类器放行的浏览器操作会跳过扩展自己的按站点授权，
   而浏览器里是你所有网站的登录态。不想让它碰的站点，在扩展设置里拒绝
 - 凭据存在各 bot 状态目录的 `.env` 里，权限 600
