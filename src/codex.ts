@@ -123,6 +123,11 @@ export type AgentInput = {
   message: { content: string | InputBlock[] }
 }
 
+type InputQueue = AsyncIterable<AgentInput> & {
+  peekBuffered(index: number): AgentInput | undefined
+  removeBuffered(uuid: string): void
+}
+
 type Tool = Pick<SdkMcpToolDefinition, 'name' | 'description'> & {
   inputSchema: z.ZodRawShape
   handler(args: Record<string, unknown>, extra: unknown): ReturnType<SdkMcpToolDefinition['handler']>
@@ -139,9 +144,12 @@ type CodexOptions = {
 }
 
 type ActiveTurn = {
-  uuid: string
+  inputs: string[]
   id?: string
   compact: boolean
+  pendingSteers: Set<string>
+  steering: boolean
+  steerRejected: boolean
   started: Promise<void>
   markStarted(): void
   finish(): void
@@ -214,7 +222,7 @@ export class CodexSession implements AsyncIterable<Frame> {
   private error: Error | undefined
   private mode: string
 
-  constructor(private readonly options: CodexOptions, private readonly messages: AsyncIterable<AgentInput>) {
+  constructor(private readonly options: CodexOptions, private readonly messages: InputQueue) {
     this.tools = new Map(options.tools.map(tool => [tool.name, tool]))
     this.mode = options.mode
     this.rpc.onRequest = (method, params) => this.serverRequest(method, params)
@@ -250,6 +258,35 @@ export class CodexSession implements AsyncIterable<Frame> {
     await active.started
     if (this.active === active && active.id) {
       await this.rpc.request('turn/interrupt', { threadId: this.threadId, turnId: active.id })
+    }
+  }
+
+  inputAvailable() {
+    const active = this.active
+    if (!active?.id || !this.threadId || active.compact || active.steering || active.steerRejected) return
+    void this.steerQueued(active, this.threadId, active.id)
+  }
+
+  private async steerQueued(active: ActiveTurn, threadId: string, turnId: string) {
+    active.steering = true
+    try {
+      while (this.active === active) {
+        // Unconfirmed inputs stay at the head of the queue, ready for the next turn if needed.
+        const message = this.messages.peekBuffered(active.pendingSteers.size)
+        if (!message || message.message.content === '/compact') return
+        active.pendingSteers.add(message.uuid)
+        await this.rpc.request('turn/steer', {
+          threadId,
+          expectedTurnId: turnId,
+          clientUserMessageId: message.uuid,
+          input: inputFor(message),
+        })
+      }
+    } catch {
+      // The turn may already be ending on the server. Keep FIFO order for the next turn.
+      active.steerRejected = true
+    } finally {
+      active.steering = false
     }
   }
 
@@ -351,7 +388,10 @@ export class CodexSession implements AsyncIterable<Frame> {
     const compact = message.message.content === '/compact'
     let markStarted!: () => void
     const started = new Promise<void>(resolve => { markStarted = resolve })
-    const active: ActiveTurn = { uuid: message.uuid, compact, started, markStarted, finish }
+    const active: ActiveTurn = {
+      inputs: [message.uuid], compact, pendingSteers: new Set(), steering: false, steerRejected: false,
+      started, markStarted, finish,
+    }
     this.active = active
     this.emit({ type: 'command_lifecycle', state: 'started', command_uuid: message.uuid })
     try {
@@ -366,7 +406,10 @@ export class CodexSession implements AsyncIterable<Frame> {
           approvalsReviewer: 'user',
           sandboxPolicy: sandboxPolicy(this.mode),
         })
-        if (this.active === active) active.id ??= result.turn.id
+        if (this.active === active) {
+          active.id ??= result.turn.id
+          this.inputAvailable()
+        }
         this.persistThread()
       }
       await done
@@ -388,7 +431,7 @@ export class CodexSession implements AsyncIterable<Frame> {
     }
     this.streamed.clear()
     this.toolsInProgress.clear()
-    this.emit({ type: 'result', subtype: status, user_message_uuid: turn.uuid })
+    this.emit({ type: 'result', subtype: status, user_message_uuids: turn.inputs })
     turn.markStarted()
     turn.finish()
   }
@@ -402,6 +445,7 @@ export class CodexSession implements AsyncIterable<Frame> {
       case 'turn/started':
         active.id = params.turn.id
         active.markStarted()
+        this.inputAvailable()
         break
       case 'item/agentMessage/delta':
         if (!this.streamed.has(params.itemId)) {
@@ -411,11 +455,12 @@ export class CodexSession implements AsyncIterable<Frame> {
         this.streamEvent({ type: 'content_block_delta', delta: { type: 'text_delta', text: params.delta } })
         break
       case 'item/started':
-        if (params.item.type === 'userMessage') this.persistThread()
+        if (params.item.type === 'userMessage') this.takeUserMessage(active, params.item)
         else this.startTool(params.item)
         break
       case 'item/completed':
-        this.completeItem(params.item)
+        if (params.item.type === 'userMessage') this.takeUserMessage(active, params.item)
+        else this.completeItem(params.item)
         break
       case 'thread/tokenUsage/updated': {
         const maxTokens = params.tokenUsage.modelContextWindow ?? 0
@@ -434,6 +479,15 @@ export class CodexSession implements AsyncIterable<Frame> {
         if (params.turn.status !== 'inProgress') this.finishTurn(active, params.turn.status, params.turn.error?.message)
         break
     }
+  }
+
+  private takeUserMessage(active: ActiveTurn, item: Frame) {
+    this.persistThread()
+    const uuid = item.clientId
+    if (typeof uuid !== 'string' || !active.pendingSteers.delete(uuid)) return
+    this.messages.removeBuffered(uuid)
+    active.inputs.push(uuid)
+    this.emit({ type: 'command_lifecycle', state: 'started', command_uuid: uuid, steered: true })
   }
 
   private startTool(item: Frame) {
