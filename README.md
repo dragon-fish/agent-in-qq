@@ -51,8 +51,9 @@ Codex 的凭据和启动方式见[配置第二个 Codex bot](#配置第二个-co
   （`QQ_GROUP_CONCURRENCY`），多出的排队；空闲 30 分钟（`QQ_GROUP_IDLE_MINUTES`）自动关闭，下次按 session id 接回。
   群名自动从 QQ 取，`/group name set` 可自定义，`/group info` 看群信息；`/group trust on` 标记只有主人和主人
   自己 bot 的群，只有这样的群里 agent 才谈主人的私事和本机细节。
-  群里所有消息（含其他 bot 的）存进本地 `history.db` 保留 30 天，agent 用 `qq_group_history` 查；每轮还会
-  附上触发前的 10 条。群消息不能流式，每段文字写完就发一条；`MEDIA:` 照样能发文件。bot 之间连续来回超过 6 轮、
+  群里所有消息（含其他 bot 的）存进本地 `history.db` 保留 30 天，agent 用 `qq_group_history` 查。群附件保存文件名和
+  下载链接，触发消息带附件时也会把这些信息传给 agent，供它按需下载。
+  群消息不能流式，每段文字写完就发一条；`MEDIA:` 照样能发文件。bot 之间连续来回超过 6 轮、
   中间没有人类 op 说话，就暂停回应 bot 并 @ 主人。审批和提问仍发到主人私聊（群里发起的只能点按钮回答），群里只有主人能用斜杠指令。
   详见 [docs/group-chat.md](docs/group-chat.md)
 - **agent 之间传话**：私聊和每个群各由一个 agent 负责，它们可以用 `qq_list_agents` / `qq_message_agent` 互相发

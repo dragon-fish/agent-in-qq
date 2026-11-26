@@ -13,6 +13,7 @@
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import type { GroupAttachment } from './qq.js'
 
 export type HistoryMention = { openid: string; name: string; is_you?: boolean }
 
@@ -27,6 +28,7 @@ export type HistoryMessage = {
   /** As QQ carried it: mentions appear as `<@member_openid>`. */
   content: string
   mentions: HistoryMention[]
+  attachments: GroupAttachment[]
   /** `msg_idx` of an inbound message, `ext_info.ref_idx` of one this bot sent: what a quote of it carries. */
   ref_idx: string | null
   /** Milliseconds. */
@@ -38,10 +40,11 @@ export const HISTORY_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 export const HISTORY_DEFAULT_LIMIT = 20
 export const HISTORY_MAX_LIMIT = 100
 
-type Row = Omit<HistoryMessage, 'is_bot' | 'is_self' | 'mentions'> & {
+type Row = Omit<HistoryMessage, 'is_bot' | 'is_self' | 'mentions' | 'attachments'> & {
   is_bot: number
   is_self: number
   mentions_json: string
+  attachments_json: string
 }
 
 function fromRow(r: Row): HistoryMessage {
@@ -50,6 +53,13 @@ function fromRow(r: Row): HistoryMessage {
     mentions = JSON.parse(r.mentions_json)
   } catch {
     // A row is still worth returning without its mention names.
+  }
+  let attachments: GroupAttachment[] = []
+  try {
+    const parsed = JSON.parse(r.attachments_json)
+    if (Array.isArray(parsed)) attachments = parsed
+  } catch {
+    // A row is still worth returning without its attachments.
   }
   return {
     group_openid: r.group_openid,
@@ -60,13 +70,14 @@ function fromRow(r: Row): HistoryMessage {
     is_self: r.is_self === 1,
     content: r.content,
     mentions,
+    attachments,
     ref_idx: r.ref_idx,
     created_at: r.created_at,
   }
 }
 
 const COLUMNS =
-  'group_openid, message_id, author_openid, author_name, is_bot, is_self, content, mentions_json, ref_idx, created_at'
+  'group_openid, message_id, author_openid, author_name, is_bot, is_self, content, mentions_json, attachments_json, ref_idx, created_at'
 
 export class History {
   private readonly db: DatabaseSync
@@ -86,12 +97,16 @@ export class History {
         is_self       INTEGER NOT NULL,
         content       TEXT    NOT NULL,
         mentions_json TEXT    NOT NULL,
+        attachments_json TEXT NOT NULL DEFAULT '[]',
         ref_idx       TEXT,
         created_at    INTEGER NOT NULL,
         PRIMARY KEY (group_openid, message_id)
       );
       CREATE INDEX IF NOT EXISTS messages_created ON messages (created_at);
     `)
+    if (!this.db.prepare("SELECT name FROM pragma_table_info('messages') WHERE name = 'attachments_json'").get()) {
+      this.db.exec("ALTER TABLE messages ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'")
+    }
   }
 
   /**
@@ -101,7 +116,7 @@ export class History {
    */
   record(m: HistoryMessage): boolean {
     const res = this.db
-      .prepare(`INSERT OR IGNORE INTO messages (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .prepare(`INSERT OR IGNORE INTO messages (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(
         m.group_openid,
         m.message_id,
@@ -111,6 +126,7 @@ export class History {
         m.is_self ? 1 : 0,
         m.content,
         JSON.stringify(m.mentions),
+        JSON.stringify(m.attachments),
         m.ref_idx,
         m.created_at,
       )

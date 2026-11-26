@@ -9,7 +9,7 @@
  */
 
 import type { HistoryMessage } from './history.js'
-import type { InboundGroupMessage } from './qq.js'
+import type { GroupAttachment, InboundGroupMessage } from './qq.js'
 
 /**
  * The run of @'s a message opens with, e.g. `<@a> <@b> ` in `<@a> <@b> hi`.
@@ -153,7 +153,7 @@ const INVISIBLE = '\\s\\u200B-\\u200F\\u2060\\uFEFF'
  */
 const FRAMING_TAG = new RegExp(
   `<(?=[${INVISIBLE}]*/?[${INVISIBLE}]*` +
-    `(?:turn|user|conversation|quoted|harness|system)[-_]?(?:context|message|reminder)\\b)`,
+    `(?:(?:turn|user|conversation|quoted|harness|system)[-_]?(?:context|message|reminder)|attachments)\\b)`,
   'gi',
 )
 
@@ -225,6 +225,7 @@ export type TurnInput = MemberLookup & {
   /** The message itself, mentions still as `<@id>`. */
   text: string
   mentions?: { openid: string; name: string }[]
+  attachments?: GroupAttachment[]
 }
 
 /** How many earlier group messages ride along with a trigger. */
@@ -319,7 +320,12 @@ export function wrapTurn(input: TurnInput): string {
       : undefined,
   })
   const body = renderMentions(input.text, input.mentions ?? [], input.nameOf)
-  return ['<turn_context>', context, '</turn_context>', '<user_message>', neutralize(body), '</user_message>'].join('\n')
+  const blocks = ['<turn_context>', context, '</turn_context>', '<user_message>', neutralize(body), '</user_message>']
+  if (source.kind === 'group' && input.attachments?.length) {
+    const json = JSON.stringify(input.attachments).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    blocks.push('<attachments>', json, '</attachments>')
+  }
+  return blocks.join('\n')
 }
 
 /** How long an originating message is quoted in a delivery's context. */

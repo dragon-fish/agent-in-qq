@@ -1230,7 +1230,7 @@ function qqToolsFor(conv: Conversation) {
           'and other bots alike, and every message it sent. Lines are oldest first, each led by its ' +
           'message id. Defaults to the group this conversation belongs to. Page backwards with ' +
           'before_message_id; filter with query, a plain substring of the text or the sender name. ' +
-          'Kept for 30 days.',
+          'Kept for 30 days. Each row has an attachments array with download links, which may expire.',
         {
           group: z.string().optional().describe("group_openid; defaults to this conversation's group"),
           limit: z.number().int().min(1).max(100).optional().describe('How many messages; default 20'),
@@ -1264,7 +1264,10 @@ function qqToolsFor(conv: Conversation) {
               `群 ${jsonLine(groupLabel(target))} (${target}), ${rows.length} message(s), oldest first, one JSON object each.`,
               HISTORY_CAVEAT,
               ...rows.map(m =>
-                jsonLine(historyEntry(m, { ref: now, withId: true, roleOf: memberRole, nameOf: memberName })),
+                jsonLine({
+                  ...historyEntry(m, { ref: now, withId: true, roleOf: memberRole, nameOf: memberName }),
+                  attachments: m.attachments,
+                }),
               ),
             ].join('\n'),
           )
@@ -1669,6 +1672,7 @@ async function handleGroupMessage(msg: InboundGroupMessage): Promise<void> {
     is_self: false,
     content: withAttachmentNotes(msg.content, msg.attachments),
     mentions: msg.mentions.map(m => ({ openid: m.openid, name: m.name, ...(m.isYou ? { is_you: true } : {}) })),
+    attachments: msg.attachments,
     ref_idx: msg.msgIdx,
     created_at: msg.at,
   })
@@ -1734,9 +1738,7 @@ async function handleGroupMessage(msg: InboundGroupMessage): Promise<void> {
   // as an @ of it is: a bare sentence leaves the agent unable to tell it was
   // called at all. The context names what woke it.
   const nickname = mentionsMe(msg) || msg.author.bot ? null : matchNickname(msg.content, nicknames)
-  const { images, notes } = await readAttachments(msg.attachments)
-  const said = [msg.content, ...notes].filter(Boolean).join('\n') || (images.length ? '(图片)' : '')
-  const rendered = renderMentions(said, msg.mentions, memberName)
+  const rendered = renderMentions(msg.content, msg.mentions, memberName)
   conv.lastTrigger = `${msg.author.name}：${rendered}`.slice(0, 200)
   const speaker: Speaker = { openid: msg.author.openid, name: msg.author.name, isOwner: owner, isBot: msg.author.bot }
   const label = groupLabel(msg.group)
@@ -1759,13 +1761,14 @@ async function handleGroupMessage(msg: InboundGroupMessage): Promise<void> {
     at: msg.at,
     roleOf: memberRole,
     nameOf: memberName,
-    text: said,
+    text: msg.content,
     mentions: msg.mentions,
+    attachments: msg.attachments,
   })
   log(`${where}: trigger from ${msg.author.openid.slice(0, 8)}: ${msg.content.slice(0, 60)}`)
   conv.chain = { id: randomId(), depth: 0, origin: { speaker, where: `群 ${label}`, text: rendered } }
   supersedeQuestions(conv, msg.author.openid)
-  enqueue(conv, withCommandLog(conv, wrapped), images)
+  enqueue(conv, withCommandLog(conv, wrapped), [])
   ensureServing(conv)
 }
 
@@ -3769,6 +3772,7 @@ async function main(): Promise<void> {
         is_self: true,
         content: sent.content,
         mentions: [],
+        attachments: [],
         ref_idx: sent.refIdx,
         created_at: Date.now(),
       })

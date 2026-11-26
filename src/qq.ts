@@ -1697,6 +1697,8 @@ export type InboundMessage = {
 
 export type Attachment = { url?: string; content_type?: string; filename?: string }
 
+export type GroupAttachment = Attachment & { filename: string; url: string }
+
 export type GroupMember = { openid: string; name: string; bot: boolean }
 
 export type InboundGroupMessage = {
@@ -1723,7 +1725,7 @@ export type InboundGroupMessage = {
    * `ext_info.ref_idx` its send returned.
    */
   quote: { refIdx: string | null; text: string } | null
-  attachments: Attachment[]
+  attachments: GroupAttachment[]
   /** `msg_idx` from message_scene.ext: the id a quote of this message carries. */
   msgIdx: string | null
   /** Milliseconds; QQ's timestamp, or arrival when it has none. */
@@ -1745,6 +1747,20 @@ function sceneExt(d: Record<string, any>, key: string): string | null {
   return hit ? hit.slice(key.length + 1) : null
 }
 
+function parseGroupAttachments(attachments: unknown): GroupAttachment[] {
+  if (!Array.isArray(attachments)) return []
+  return attachments.flatMap((attachment: Attachment | null) => {
+    if (typeof attachment?.url !== 'string' || !attachment.url) return []
+    return [
+      {
+        filename: typeof attachment.filename === 'string' ? attachment.filename : '',
+        url: attachment.url,
+        ...(typeof attachment.content_type === 'string' ? { content_type: attachment.content_type } : {}),
+      },
+    ]
+  })
+}
+
 /** Map a GROUP_MESSAGE_CREATE or GROUP_AT_MESSAGE_CREATE payload; null when it lacks an id or group. */
 export function parseGroupEvent(type: string, d: Record<string, any>): InboundGroupMessage | null {
   if (!d.id || !d.group_openid) return null
@@ -1763,7 +1779,7 @@ export function parseGroupEvent(type: string, d: Record<string, any>): InboundGr
       d.message_type === 103 || Array.isArray(d.msg_elements)
         ? { refIdx: sceneExt(d, 'ref_msg_idx'), text: String(d.msg_elements?.[0]?.content ?? '') }
         : null,
-    attachments: Array.isArray(d.attachments) ? d.attachments : [],
+    attachments: parseGroupAttachments(d.attachments),
     msgIdx: sceneExt(d, 'msg_idx'),
     at: Number.isFinite(at) ? at : Date.now(),
   }
