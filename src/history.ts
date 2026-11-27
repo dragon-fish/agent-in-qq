@@ -13,7 +13,7 @@
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import type { GroupAttachment } from './qq.js'
+import type { Attachment } from './qq.js'
 
 export type HistoryMention = { openid: string; name: string; is_you?: boolean }
 
@@ -28,7 +28,7 @@ export type HistoryMessage = {
   /** As QQ carried it: mentions appear as `<@member_openid>`. */
   content: string
   mentions: HistoryMention[]
-  attachments: GroupAttachment[]
+  attachments: Attachment[]
   /** `msg_idx` of an inbound message, `ext_info.ref_idx` of one this bot sent: what a quote of it carries. */
   ref_idx: string | null
   /** Milliseconds. */
@@ -54,7 +54,7 @@ function fromRow(r: Row): HistoryMessage {
   } catch {
     // A row is still worth returning without its mention names.
   }
-  let attachments: GroupAttachment[] = []
+  let attachments: Attachment[] = []
   try {
     const parsed = JSON.parse(r.attachments_json)
     if (Array.isArray(parsed)) attachments = parsed

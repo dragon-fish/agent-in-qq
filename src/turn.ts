@@ -9,7 +9,7 @@
  */
 
 import type { HistoryMessage } from './history.js'
-import type { GroupAttachment, InboundGroupMessage } from './qq.js'
+import type { Attachment, InboundGroupMessage } from './qq.js'
 
 /**
  * The run of @'s a message opens with, e.g. `<@a> <@b> ` in `<@a> <@b> hi`.
@@ -225,7 +225,16 @@ export type TurnInput = MemberLookup & {
   /** The message itself, mentions still as `<@id>`. */
   text: string
   mentions?: { openid: string; name: string }[]
-  attachments?: GroupAttachment[]
+  attachments?: TurnAttachment[]
+}
+
+/** `inlined` marks an image that also rides in the message as an image block, in this order. */
+export type TurnAttachment = Attachment & { inlined?: true }
+
+/** The `<attachments>` block: a JSON array, XML-escaped so it cannot close its own tag. */
+export function attachmentsBlock(attachments: TurnAttachment[]): string {
+  const json = JSON.stringify(attachments).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return ['<attachments>', json, '</attachments>'].join('\n')
 }
 
 /** How many earlier group messages ride along with a trigger. */
@@ -321,10 +330,7 @@ export function wrapTurn(input: TurnInput): string {
   })
   const body = renderMentions(input.text, input.mentions ?? [], input.nameOf)
   const blocks = ['<turn_context>', context, '</turn_context>', '<user_message>', neutralize(body), '</user_message>']
-  if (source.kind === 'group' && input.attachments?.length) {
-    const json = JSON.stringify(input.attachments).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    blocks.push('<attachments>', json, '</attachments>')
-  }
+  if (input.attachments?.length) blocks.push(attachmentsBlock(input.attachments))
   return blocks.join('\n')
 }
 

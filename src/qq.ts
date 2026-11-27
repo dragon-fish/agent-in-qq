@@ -1695,9 +1695,8 @@ export type InboundMessage = {
   attachments: Attachment[]
 }
 
-export type Attachment = { url?: string; content_type?: string; filename?: string }
-
-export type GroupAttachment = Attachment & { filename: string; url: string }
+/** A QQ attachment as both chats deliver it; entries without a url are dropped. */
+export type Attachment = { filename: string; url: string; content_type?: string }
 
 export type GroupMember = { openid: string; name: string; bot: boolean }
 
@@ -1725,7 +1724,7 @@ export type InboundGroupMessage = {
    * `ext_info.ref_idx` its send returned.
    */
   quote: { refIdx: string | null; text: string } | null
-  attachments: GroupAttachment[]
+  attachments: Attachment[]
   /** `msg_idx` from message_scene.ext: the id a quote of this message carries. */
   msgIdx: string | null
   /** Milliseconds; QQ's timestamp, or arrival when it has none. */
@@ -1747,9 +1746,9 @@ function sceneExt(d: Record<string, any>, key: string): string | null {
   return hit ? hit.slice(key.length + 1) : null
 }
 
-function parseGroupAttachments(attachments: unknown): GroupAttachment[] {
+function parseAttachments(attachments: unknown): Attachment[] {
   if (!Array.isArray(attachments)) return []
-  return attachments.flatMap((attachment: Attachment | null) => {
+  return attachments.flatMap((attachment: { url?: unknown; filename?: unknown; content_type?: unknown } | null) => {
     if (typeof attachment?.url !== 'string' || !attachment.url) return []
     return [
       {
@@ -1779,7 +1778,7 @@ export function parseGroupEvent(type: string, d: Record<string, any>): InboundGr
       d.message_type === 103 || Array.isArray(d.msg_elements)
         ? { refIdx: sceneExt(d, 'ref_msg_idx'), text: String(d.msg_elements?.[0]?.content ?? '') }
         : null,
-    attachments: parseGroupAttachments(d.attachments),
+    attachments: parseAttachments(d.attachments),
     msgIdx: sceneExt(d, 'msg_idx'),
     at: Number.isFinite(at) ? at : Date.now(),
   }
@@ -1919,7 +1918,7 @@ export async function connectGateway(handlers: GatewayHandlers, attempt = 0): Pr
             content: String(d.content ?? '').trim(),
             openid: String(openid),
             name: String(d.author?.username ?? ''),
-            attachments: Array.isArray(d.attachments) ? d.attachments : [],
+            attachments: parseAttachments(d.attachments),
           })
         } catch (err) {
           log('inbound handling failed:', err)

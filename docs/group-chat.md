@@ -204,8 +204,9 @@ agent 查询。两台 bridge 拉进同一个群后，就能互相 @ 对话。私
   名字、群名、历史内容因此只能待在 JSON 字符串里，伪造不了字段、身份标记或闭合标签。
 - 私聊和群聊的每条入站消息都包装；`<@id>` 渲染为 `@昵称`（消息自带的名字，其次 op 备注，其次历史里见过的名字）。
   消息原样放进 `<user_message>`，用昵称叫本 bot 时昵称也留着，和 @ 一样。
-- 触发消息带群附件时，在 `</user_message>` 后附上独立的 `<attachments>` 块。块内的 JSON 数组含 `filename`、`url`
-  和 QQ 提供的 `content_type`。先解码 XML 文本实体（如 `&amp;`），再解析 JSON。agent 按需下载，链接失效时请发送者重发。
+- 私聊消息、群里的触发消息和 `qq_ask` 的文字回答带附件时，在正文后附上独立的 `<attachments>` 块。块内的 JSON 数组含
+  `filename`、`url` 和 QQ 提供的 `content_type`，先解码 XML 文本实体（如 `&amp;`），再解析 JSON。图片同时下载并内联，
+  对应条目标 `"inlined": true`，顺序一致；agent 要原文件时按 `url` 下载，链接失效时请发送者重发。
 - 历史条目的 `text` 截 200 字。
 - `<user_message>` 和会话留言正文是纯文本，其中像框架标签的 `<`（`turn_context` / `user_message` /
   `conversation_message` / `quoted_message` / `system-reminder` / `harness-reminder` / `attachments`，斜杠前后有空白或不可见字符、

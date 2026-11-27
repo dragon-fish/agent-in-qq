@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url'
 import { History } from './history.js'
 import { nativePath } from './paths.js'
 import {
+  attachmentsBlock,
   BOT_ROUND_LIMIT,
   BotRounds,
   commandText,
@@ -34,6 +35,7 @@ import {
   renderMentions,
   routeGroupMessage,
   type Speaker,
+  type TurnAttachment,
   stripNickname,
   wrapDelivery,
   wrapTurn,
@@ -1582,16 +1584,16 @@ async function handleMessage(msg: InboundMessage): Promise<void> {
       const idx = LETTERS.indexOf(letter[1].toUpperCase())
       if (idx >= 0 && idx < q.options.length) answer = q.options[idx]
     }
-    const { images, notes } = await readAttachments(msg.attachments)
-    answer = [answer, ...notes].filter(Boolean).join('\n')
-    settleQuestion(id, answer || (images.length ? '(图片)' : '(空消息)'), images)
+    const { images, listed } = await readAttachments(msg.attachments)
+    if (listed.length) answer = [answer, attachmentsBlock(listed)].filter(Boolean).join('\n')
+    settleQuestion(id, answer || '(空消息)', images)
     return
   }
 
-  const { images, notes } = await readAttachments(msg.attachments)
-  const said = [msg.content, ...notes].filter(Boolean).join('\n') || (images.length ? '(图片)' : '')
+  const { images, listed } = await readAttachments(msg.attachments)
+  const said = msg.content
   const speaker: Speaker = { openid: msg.openid, name: msg.name, isOwner: isOwner(msg.openid, access), isBot: false }
-  const wrapped = wrapTurn({ source: { kind: 'private' }, speaker, at: Date.now(), text: said })
+  const wrapped = wrapTurn({ source: { kind: 'private' }, speaker, at: Date.now(), text: said, attachments: listed })
   log(`inbound from ${msg.openid.slice(0, 8)}: ${msg.content.slice(0, 60)}${images.length ? ` (+${images.length} 图)` : ''}`)
   conv.chain = { id: randomId(), depth: 0, origin: { speaker, where: '私聊', text: said } }
   enqueue(conv, withCommandLog(conv, wrapped), images)
@@ -1739,6 +1741,7 @@ async function handleGroupMessage(msg: InboundGroupMessage): Promise<void> {
   // called at all. The context names what woke it.
   const nickname = mentionsMe(msg) || msg.author.bot ? null : matchNickname(msg.content, nicknames)
   const rendered = renderMentions(msg.content, msg.mentions, memberName)
+  const { images, listed } = await readAttachments(msg.attachments)
   conv.lastTrigger = `${msg.author.name}：${rendered}`.slice(0, 200)
   const speaker: Speaker = { openid: msg.author.openid, name: msg.author.name, isOwner: owner, isBot: msg.author.bot }
   const label = groupLabel(msg.group)
@@ -1763,12 +1766,12 @@ async function handleGroupMessage(msg: InboundGroupMessage): Promise<void> {
     nameOf: memberName,
     text: msg.content,
     mentions: msg.mentions,
-    attachments: msg.attachments,
+    attachments: listed,
   })
   log(`${where}: trigger from ${msg.author.openid.slice(0, 8)}: ${msg.content.slice(0, 60)}`)
   conv.chain = { id: randomId(), depth: 0, origin: { speaker, where: `群 ${label}`, text: rendered } }
   supersedeQuestions(conv, msg.author.openid)
-  enqueue(conv, withCommandLog(conv, wrapped), [])
+  enqueue(conv, withCommandLog(conv, wrapped), images)
   ensureServing(conv)
 }
 
@@ -1831,21 +1834,17 @@ async function announceBotPause(group: string): Promise<void> {
  * and QQ's links expire. Anything that is not an image still goes as a URL,
  * which is all a non-image attachment can usefully be.
  */
-async function readAttachments(attachments: Attachment[]): Promise<{ images: FetchedImage[]; notes: string[] }> {
+/** Images are fetched and inlined; every attachment stays listed, the inlined ones marked. */
+async function readAttachments(attachments: Attachment[]): Promise<{ images: FetchedImage[]; listed: TurnAttachment[] }> {
   const images: FetchedImage[] = []
-  const notes: string[] = []
+  const listed: TurnAttachment[] = []
   for (const att of attachments) {
-    if (!att.url) continue
     const isImage = att.content_type?.includes('image') || /\.(jpe?g|png|gif|webp)$/i.test(att.url)
-    if (!isImage) {
-      notes.push(`[文件] ${att.filename ?? ''} ${att.url}`.trim())
-      continue
-    }
-    const image = await fetchImage(att.url, att.content_type)
+    const image = isImage ? await fetchImage(att.url, att.content_type) : null
     if (image) images.push(image)
-    else notes.push(`[图片下载失败] ${att.url}`)
+    listed.push(image ? { ...att, inlined: true } : att)
   }
-  return { images, notes }
+  return { images, listed }
 }
 
 async function handleButton(click: ButtonClick): Promise<number> {
