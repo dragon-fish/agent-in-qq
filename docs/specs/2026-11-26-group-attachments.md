@@ -7,8 +7,8 @@
 ## 约定
 
 - 新收到的群附件存入 `attachments_json`，每项保存文件名、下载链接和 QQ 提供的 MIME 类型。历史查询返回 `attachments` 数组，迁移前的记录返回空数组。
-- 触发 agent 的群消息在 `</user_message>` 后附上同级 `<attachments>` 块，块内是经过 XML 文本转义的 JSON 数组。只有带附件时才添加该块。
-- 群附件由 agent 根据任务按需下载。遇到链接过期或下载失败时，请发送者重发。私聊附件沿用现有处理方式。
+- 附件块是 `</user_message>` 后同级的 `<attachments>`，块内是经过 XML 文本转义的 JSON 数组。只有带附件时才添加该块。
+- 群历史里的附件由 agent 根据任务按需下载。遇到链接过期或下载失败时，请发送者重发。触发消息的附件见 `2026-11-28-direct-message-attachments.md`。
 
 ## 验收
 
