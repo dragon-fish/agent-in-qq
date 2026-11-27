@@ -1260,6 +1260,15 @@ const IMAGE_MEDIA_TYPES: Record<string, string> = {
  * be used. QQ's CDN links are short-lived and unauthenticated to the model, so
  * passing the URL through would leave Claude unable to see what was sent.
  */
+/** The image type the leading bytes declare, for the formats the model accepts. */
+function sniffImage(buf: Buffer): string | null {
+  if (buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png'
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg'
+  if (buf.subarray(0, 4).toString('latin1') === 'GIF8') return 'image/gif'
+  if (buf.subarray(0, 4).toString('latin1') === 'RIFF' && buf.subarray(8, 12).toString('latin1') === 'WEBP') return 'image/webp'
+  return null
+}
+
 export async function fetchImage(
   url: string,
   contentType?: string,
@@ -1277,13 +1286,12 @@ export async function fetchImage(
       return null
     }
 
-    // Trust the response header first, then the URL's extension; QQ often
-    // serves images from extensionless paths.
+    // The bytes decide: an image sent as a file arrives as content_type
+    // "file" from an extensionless URL, and a declared type that does not
+    // match the bytes gets the image rejected by the model API.
     const header = (contentType ?? res.headers.get('content-type') ?? '').split(';')[0].trim()
     const ext = new URL(url).pathname.split('.').pop()?.toLowerCase() ?? ''
-    const mediaType = header.startsWith('image/')
-      ? header
-      : (IMAGE_MEDIA_TYPES[ext] ?? 'image/jpeg')
+    const mediaType = sniffImage(buf) ?? (header.startsWith('image/') ? header : (IMAGE_MEDIA_TYPES[ext] ?? 'image/jpeg'))
 
     return { data: buf.toString('base64'), mediaType }
   } catch (err) {

@@ -1839,7 +1839,7 @@ async function readAttachments(attachments: Attachment[]): Promise<{ images: Fet
   const images: FetchedImage[] = []
   const listed: TurnAttachment[] = []
   for (const att of attachments) {
-    const isImage = att.content_type?.includes('image') || /\.(jpe?g|png|gif|webp)$/i.test(att.url)
+    const isImage = att.content_type?.includes('image') || [att.filename, att.url].some(n => /\.(jpe?g|png|gif|webp)$/i.test(n))
     const image = isImage ? await fetchImage(att.url, att.content_type) : null
     if (image) images.push(image)
     listed.push(image ? { ...att, inlined: true } : att)
