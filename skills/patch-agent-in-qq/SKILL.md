@@ -1,6 +1,6 @@
 ---
 name: patch-agent-in-qq
-description: Use when changing Agent in QQ (formerly claude-in-qq), including slash commands, QQ transport, streaming, and session lifecycle, or applying a change to a running bridge.
+description: Use when changing Agent in QQ (aliases: agent-in-qq, ainqq, aiq; formerly claude-in-qq / ccinqq), including slash commands, QQ transport, streaming, and session lifecycle, or applying a change to a running bridge.
 ---
 
 # 修改 Agent in QQ
@@ -23,6 +23,15 @@ Agent in QQ 让用户在 QQ 里遥控 Claude Code 或 Codex。改它跟改别的
 
 不要猜路径。这个 skill 一般是从仓库软链到 skills 目录的，解析它自身所在目录的软链就能
 拿到仓库根；桥接装出来的命令行工具同理，也是指回源码的软链。
+
+## 部署：master 是唯一真相源
+
+每个 bot 从自己独立的 worktree 启动，互不影响：别人改到一半的代码，不会因为你重启而上线。
+
+worktree 只是部署副本，主仓 master 才是真相源：
+
+- 改动先合回 master 并推送，再拿去上线。线上跑的每个提交都在 master 上
+- 更新自己的 worktree 时，同步到 master 的最新提交
 
 ## 要查 QQ 的接口时
 
