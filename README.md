@@ -262,16 +262,14 @@ pytest 2>&1 | tail -20 | qq-notify --from "跑测试"
 qq-notify --from "出图" "对比图如下" MEDIA:./board.png   # 单独一行 MEDIA:路径 作为附件发送
 ```
 
-```bash
-skills/install.sh          # 装
-skills/install.sh --uninstall   # 卸
-```
+安装就是建几条软链，交给 agent 做即可：
 
-装完 `~/.local/bin/qq-notify` 指向 `src/notify.ts`，靠 shebang 执行——所以显示的工作目录是**调用方**的，
-不是项目的。`~/.claude/skills/qq-notify` 指向 `skills/qq-notify`，于是你对任意 CC 说「做完了 QQ 喊我
-一声」它就知道该干什么。软链而非拷贝，改仓库即生效，没有第二份要同步。
+- `~/.local/bin/qq-notify` → `src/notify.ts`（靠 shebang 执行，所以显示的工作目录是**调用方**的，不是项目的）
+- `skills/` 下的每个目录 → 各个 agent 的 skills 目录（Claude Code 是 `~/.claude/skills/`，Codex 是 `~/.codex/skills/`）
 
-`skills/` 下每个目录都是一个 skill，装的时候全部软链过去，加新的不必改脚本。除 `qq-notify` 外还有
+用软链而不是拷贝：改仓库即生效，没有第二份要同步。装好 `qq-notify` skill 后，对任意 agent 说「做完了 QQ 喊我一声」，它就知道该怎么做。
+
+`skills/` 下每个目录都是一个 skill，新加的 skill 记得补链。除 `qq-notify` 外还有
 `patch-agent-in-qq`——写给**要改这个仓库本身**的 agent，只讲源码里读不到的事：重启时怎么不把正在对话的
 自己弄断线、QQ 的接口文档该去哪找、没有测试框架时怎么验证。结构和分层不写进去，让它直接读源码更准，
 也不会过期。
